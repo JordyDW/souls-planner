@@ -254,20 +254,35 @@
 
   /* ------------------------------------------------------------- which game? */
 
-  function detectGame() {
-    if (typeof plannerId !== 'undefined' && ADAPTERS[plannerId]) return plannerId
-    var match = window.location.pathname.match(/(darksouls[23]?)\/[^/]*$/)
-    return match && ADAPTERS[match[1]] ? match[1] : null
+  /* Which page is this? Runs at parse time, before <body> exists, so it cannot ask the DOM -
+     the URL is all there is. index.html is the planner; anything else under a game directory is
+     one of that game's calculators, which need a much smaller treatment. */
+  function detectPage() {
+    var match = window.location.pathname.match(/(darksouls[23]?)\/([^/]*)$/)
+    var byPath = match && ADAPTERS[match[1]] ? match[1] : null
+    var byGlobal = typeof plannerId !== 'undefined' && ADAPTERS[plannerId] ? plannerId : null
+    var game = byGlobal || byPath
+    if (!game) return null
+
+    var file = (match && match[2]) || 'index.html'
+    var planner = byGlobal !== null || file === '' || file === 'index.html'
+    return {
+      game: game,
+      kind: planner ? 'planner' : 'calculator',
+      name: file.replace(/\.html$/, '') || 'index'
+    }
   }
 
-  var game = detectGame()
+  var page = detectPage()
+  var game = page && page.game
   var adapter = game && ADAPTERS[game]
   if (!adapter) return
 
   var KEY = {
     autosave: 'soulsPlanner.autosave.' + game,
     builds: 'soulsPlanner.builds.' + game,
-    currentId: 'soulsPlanner.currentId.' + game
+    currentId: 'soulsPlanner.currentId.' + game,
+    calculator: 'soulsPlanner.calc.' + game + '.' + (page ? page.name : '')
   }
 
   /* --------------------------------------------------------- parked slots */
@@ -514,6 +529,193 @@
 
   function shareUrl(state) {
     return baseUrl() + HASH_PREFIX + encode(state)
+  }
+
+  /* ------------------------------------------------------------- calculators */
+
+  /* The calculator pages are far simpler than the planner: no savedBuild applier, no derived
+     format, just a handful of controls with stable ids. So their state is a plain {id: value}
+     map, stored per page and mirrored into a #c= hash so a setup can be shared like a build.
+
+     They also had no connection whatsoever to the builds you plan next door, which is the more
+     annoying half - you retyped your stats by hand every time. They can now pull them across. */
+
+  var CALC_HASH_PREFIX = '#c='
+
+  function calcControls() {
+    return $('.calculator').find('select, input').filter(function () {
+      return this.id && !this.readOnly && this.type !== 'button'
+    })
+  }
+
+  function readCalculator() {
+    var state = {}
+    calcControls().each(function () {
+      state[this.id] = this.type === 'checkbox' ? ($(this).prop('checked') ? 1 : 0) : $(this).val()
+    })
+    return state
+  }
+
+  function applyCalculator(state) {
+    calcControls().each(function () {
+      if (!state.hasOwnProperty(this.id)) return
+      var value = state[this.id]
+      if (this.type === 'checkbox') {
+        $(this).prop('checked', !!Number(value)).trigger('change')
+      } else {
+        $(this).val(value).trigger('change.select2').trigger('change')
+      }
+    })
+  }
+
+  function encodeCalculator(state) {
+    return LZString.compressToEncodedURIComponent(
+      JSON.stringify({ v: FORMAT, g: game, p: page.name, s: state })
+    )
+  }
+
+  function decodeCalculator(token) {
+    var json = null
+    try {
+      json = LZString.decompressFromEncodedURIComponent(token)
+    } catch (e) {
+      json = null
+    }
+    if (!json) throw new Error('link is not valid compressed data')
+
+    var payload = JSON.parse(json)
+    if (payload.v !== FORMAT) throw new Error('unsupported format version ' + payload.v)
+    if (payload.g !== game || payload.p !== page.name) {
+      throw new Error('link is for ' + payload.g + '/' + payload.p + ', this is ' + game + '/' + page.name)
+    }
+    if (!payload.s || typeof payload.s !== 'object') throw new Error('link carries no settings')
+    return payload.s
+  }
+
+  /* Stat fields the planner and this particular calculator have in common - which is the whole
+     trick behind pulling them across, since both use the planner's own field names. */
+  function sharedStatFields(build) {
+    var shared = []
+    calcControls().each(function () {
+      if (build.hasOwnProperty(this.id)) shared.push(this.id)
+    })
+    return shared
+  }
+
+  function buildSources() {
+    var sources = []
+    var autosave = store.get(KEY.autosave, null)
+    try {
+      if (autosave) sources.push({ id: '__current', name: 'Current build', build: unwrap(autosave) })
+    } catch (e) {
+      /* an unusable autosave simply is not offered */
+    }
+    var builds = loadBuilds()
+    for (var i = 0; i < builds.length; i++) {
+      sources.push({ id: builds[i].id, name: builds[i].name, build: builds[i].build })
+    }
+    return sources
+  }
+
+  function buildStatPicker() {
+    var host = $('.calculator .attributes')
+    if (!host.length) return
+
+    var sources = buildSources()
+    if (!sources.length) return
+    if (!sharedStatFields(sources[0].build).length) return
+
+    var picker = $('<div class="sp-from-build"></div>')
+    var select = $('<select></select>').append('<option value="">Use stats from…</option>')
+    for (var i = 0; i < sources.length; i++) {
+      select.append($('<option></option>').attr('value', sources[i].id).text(sources[i].name))
+    }
+
+    select.on('change', function () {
+      var id = $(this).val()
+      $(this).val('')
+      if (!id) return
+      var source = null
+      for (var s = 0; s < sources.length; s++) if (sources[s].id === id) source = sources[s]
+      if (!source) return
+
+      var fields = sharedStatFields(source.build)
+      for (var f = 0; f < fields.length; f++) {
+        $('#' + fields[f]).val(source.build[fields[f]]).trigger('change')
+      }
+      toast(fields.length ? 'Stats from ' + source.name : 'Nothing to copy across')
+    })
+
+    picker.append(select).insertAfter(host)
+  }
+
+  function initCalculator() {
+    var timer = null
+
+    function persist() {
+      var state = readCalculator()
+      store.set(KEY.calculator, { v: FORMAT, g: game, p: page.name, s: state })
+      try {
+        window.history.replaceState(null, '', CALC_HASH_PREFIX + encodeCalculator(state))
+      } catch (e) {
+        /* file:// forbids replaceState; storage still works */
+      }
+    }
+
+    $(document).ready(function () {
+      if (!$('.calculator').length) return
+
+      /* Unlike the planner there is no applier to beat to the punch: the calculator has already
+         populated its own dropdowns by now, so this is the right moment to put values back. */
+      try {
+        var restored = null
+        var hash = window.location.hash
+
+        if (hash.indexOf(CALC_HASH_PREFIX) === 0) {
+          try {
+            restored = decodeCalculator(hash.slice(CALC_HASH_PREFIX.length))
+          } catch (linkError) {
+            /* Same rule as the planner: a mangled link must not cost you the settings you had. */
+            warn('ignoring link: ' + linkError.message)
+          }
+        }
+
+        if (!restored) {
+          var saved = store.get(KEY.calculator, null)
+          if (saved && saved.v === FORMAT && saved.g === game && saved.p === page.name && saved.s) {
+            restored = saved.s
+          }
+        }
+
+        if (restored) applyCalculator(restored)
+      } catch (error) {
+        warn('ignoring saved calculator settings: ' + error.message)
+      }
+
+      buildStatPicker()
+
+      $('.calculator').on('change', 'select, input', function () {
+        window.clearTimeout(timer)
+        timer = window.setTimeout(persist, DEBOUNCE_MS)
+      })
+
+      persist()
+    })
+
+    window.SoulsPersist = {
+      game: game,
+      page: page,
+      toast: toast,
+      current: readCalculator,
+      shareUrl: function () {
+        return baseUrl() + CALC_HASH_PREFIX + encodeCalculator(readCalculator())
+      }
+    }
+  }
+
+  if (page.kind === 'calculator') {
+    initCalculator()
+    return
   }
 
   /* -------------------------------------------------- restore (before ready) */

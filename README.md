@@ -93,6 +93,20 @@ Under `localStorage`, per game (`darksouls`, `darksouls2`, `darksouls3`):
 
 Use Export in the builds dialog for a backup you can keep.
 
+## The calculators
+
+The attack, defence, stamina, armor, spell and item calculators now remember what you set. Same
+deal as builds: state is kept per page and mirrored into a `#c=` link you can share or bookmark.
+Their group and infusion filters are included, so a calculator stays set up the way you left it.
+
+They can also **pull stats from a build** instead of you retyping them. The dropdown under the
+attributes lists the build currently open in the planner plus every saved build; pick one and the
+stats it shares with that calculator are copied across — strength, dexterity, intelligence, faith,
+luck, and humanity on Dark Souls. Nothing else is touched, so your weapon filters stay put.
+
+A link made for one calculator is refused by another rather than half-applied, and a corrupt link
+falls back to your saved settings instead of wiping them.
+
 ## Offline, and installing it
 
 The site registers a service worker, so after the first visit it loads from disk and keeps working
@@ -115,6 +129,10 @@ and it opens in its own window.
 After a deploy the new version installs in the background and applies on the next load; you get a
 "reload to update" note rather than having bundles swapped underneath a planner you are using. To
 force everything to be re-fetched, bump `CACHE_VERSION` in `sw.js`.
+
+Worth knowing if you edit the code: the worker serves the shell cache-first, so a changed
+script keeps loading from cache until the worker updates. Either bump `CACHE_VERSION` or
+unregister the worker in devtools while you are working on it.
 
 ### A note on opening the files directly
 
