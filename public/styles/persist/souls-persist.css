@@ -9,88 +9,150 @@
  * inside .character-class .options, so `.planner.dark .options button` already styles them.
  */
 
-/* The planner hides its own dialogs by id, so ours has to hide itself. */
-#builds-dialog {
-  display: none;
+/* ------------------------------------------------------------------------- drawer */
+
+/* A right-hand drawer rather than a modal, so the planner stays usable while it is open. It
+   overlays rather than reflowing the page: the planner is a fixed-width centred layout and
+   pushing it sideways would fight its own breakpoints. */
+.sp-drawer {
   background: #f8f8ff;
+  bottom: 0;
+  box-shadow: -2px 0 14px rgba(0, 0, 0, 0.55);
   color: #333;
-  padding: 16px 16px 14px;
-  width: 560px;
-  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  max-width: 100vw;
+  position: fixed;
+  right: 0;
+  top: 0;
+  transform: translateX(100%);
+  transition: transform 0.18s ease-out;
+  width: 380px;
+  z-index: 200;
 }
 
-#builds-dialog h2 {
+.sp-drawer--open {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-drawer {
+    transition: none;
+  }
+}
+
+.sp-drawer__head {
+  align-items: center;
   border-bottom: 1px solid #ddd;
-  margin: 0 0 10px;
-  padding-bottom: 6px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
 }
 
-#builds-dialog .sp-dialog__body {
-  max-height: 60vh;
+.sp-drawer__head h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.sp-drawer__close {
+  background: 0 0;
+  border: 0;
+  color: #666;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.sp-drawer__close:hover {
+  color: #111;
+}
+
+.sp-drawer__body {
+  flex: 1 1 auto;
   overflow-y: auto;
+  padding: 4px 14px;
 }
 
-#builds-dialog footer {
+.sp-drawer__foot {
   border-top: 1px solid #ddd;
-  margin-top: 12px;
-  padding-top: 10px;
-  text-align: right;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  padding: 10px 14px;
 }
 
-#builds-dialog footer button {
+.sp-drawer__foot button {
   background: #fff;
   border: 1px solid #ccc;
   color: #333;
   cursor: pointer;
   height: 26px;
-  margin-left: 4px;
   padding: 0 10px;
 }
 
-#builds-dialog footer button:hover {
+.sp-drawer__foot button:hover {
   background: #eee;
 }
 
-#builds-dialog footer button.default {
+.sp-drawer__foot button.default {
   border-color: #069;
   color: #069;
   font-weight: 700;
 }
 
-#builds-dialog .sp-file {
+.sp-drawer .sp-file {
   display: none;
 }
 
+/* The toolbar button stays lit while its drawer is open. */
+.planner .options button.sp-button--active {
+  color: #f5f5f5;
+}
+
+/* ------------------------------------------------------------- saved build list */
+
 .sp-builds {
-  border-collapse: collapse;
-  width: 100%;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.sp-builds td {
+.sp-build {
   border-bottom: 1px solid #ddd;
-  padding: 5px 4px;
-  vertical-align: middle;
+  padding: 8px 0 9px;
 }
 
-.sp-builds__row--current .sp-builds__name {
+.sp-build__top {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sp-build__name {
+  overflow-wrap: anywhere;
+}
+
+.sp-build--current .sp-build__name {
   font-weight: 700;
 }
 
-.sp-builds__name {
-  word-break: break-word;
-}
-
-.sp-builds__level,
-.sp-builds__date {
+.sp-build__level,
+.sp-build__meta {
   color: #777;
   white-space: nowrap;
-  width: 1%;
 }
 
-.sp-builds__actions {
-  text-align: right;
-  white-space: nowrap;
-  width: 1%;
+.sp-build__meta {
+  font-size: 12px;
+  margin-top: 1px;
+}
+
+.sp-build__actions {
+  margin: 4px -4px 0;
 }
 
 .sp-action {
@@ -99,8 +161,7 @@
   color: #069;
   cursor: pointer;
   font-size: 12px;
-  margin-left: 6px;
-  padding: 2px 3px;
+  padding: 2px 4px;
 }
 
 .sp-action:hover {
@@ -113,7 +174,7 @@
 
 .sp-empty {
   color: #777;
-  margin: 4px 0;
+  margin: 8px 0;
 }
 
 /* Confirmation for actions with no visible result of their own, e.g. copying a link. */
@@ -152,9 +213,19 @@
 /* Slot rows are laid out with fixed-width labels and calc() widths that differ per game and per
    breakpoint. Rather than adjust any of those, the cell holding the select becomes a flex row
    and the select takes whatever is left after the checkbox. */
+/* !important because the planner's own stylesheet sets display on these cells with a more
+   specific selector, and without winning that the flex sizing below is simply inert. */
+.planner .sp-slot--inline {
+  display: inline-flex !important;
+}
+
+.planner .sp-slot--block {
+  display: flex !important;
+}
+
 .planner .sp-slot {
   align-items: center;
-  display: flex;
+  flex-wrap: nowrap;
 }
 
 /* The input itself is pushed off-screen by the planner's own stylesheet; the label is the box
@@ -163,17 +234,26 @@
   flex: 0 0 auto;
 }
 
-/* select2 writes an inline pixel width when it initialises, which is before the checkbox is
-   inserted - so the override has to outrank it. */
+/* Zero flex-basis on purpose: the select must never contribute its content width, or a long item
+   name pushes the row past the wrapper's fixed calc() width and wraps onto a second line. With a
+   zero basis it simply takes whatever is left beside the checkbox, so every field lines up.
+   select2 also writes an inline pixel width when it initialises - before the checkbox exists - so
+   that has to be outranked too. */
 .planner .sp-slot > .select2 {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-width: 0;
   width: auto !important;
 }
 
 .planner .sp-slot > select {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-width: 0;
+}
+
+.planner .sp-slot > .select2 .select2-selection__rendered {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A parked slot should read as deliberately empty, not merely unequipped. */
@@ -181,4 +261,154 @@
 .planner .sp-slot--parked > select {
   font-style: italic;
   opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------------ compare */
+
+/* The frames exist only so the planner will calculate a build for us; they are never seen.
+   Off-screen rather than display:none, which would stop them loading at all. */
+.sp-compare-frame {
+  border: 0;
+  height: 900px;
+  left: -20000px;
+  position: fixed;
+  top: 0;
+  visibility: hidden;
+  width: 1400px;
+}
+
+.sp-drawer--wide {
+  width: 620px;
+}
+
+.sp-back {
+  background: 0 0;
+  border: 0;
+  color: #069;
+  cursor: pointer;
+  font-size: 12px;
+  margin: 4px 0 8px -4px;
+  padding: 2px 4px;
+}
+
+.sp-back:hover {
+  text-decoration: underline;
+}
+
+.sp-pane--compare h3 {
+  border-bottom: 1px solid #ddd;
+  font-size: 13px;
+  margin: 14px 0 4px;
+  padding-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.sp-cmp__names {
+  display: flex;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-right: 62px;
+}
+
+.sp-cmp__names span {
+  flex: 0 0 108px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.sp-cmp {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.sp-cmp th {
+  color: #555;
+  font-weight: 400;
+  padding: 2px 6px 2px 0;
+  text-align: left;
+}
+
+.sp-cmp td {
+  padding: 2px 0 2px 8px;
+  text-align: right;
+  white-space: nowrap;
+  width: 108px;
+}
+
+/* Only the rows that actually differ should draw the eye. */
+.sp-cmp--diff th,
+.sp-cmp--diff td {
+  background: #fdf6e3;
+}
+
+.sp-cmp--diff th {
+  color: #222;
+  font-weight: 700;
+}
+
+.sp-cmp__delta {
+  width: 54px;
+}
+
+.sp-cmp__delta--up {
+  color: #2a7a2a;
+}
+
+.sp-cmp__delta--down {
+  color: #a33;
+}
+
+.sp-pick {
+  flex: 0 0 auto;
+  margin: 2px 6px 0 0;
+}
+
+.sp-build__top {
+  align-items: flex-start;
+}
+
+.sp-build__top .sp-build__name {
+  flex: 1 1 auto;
+}
+
+.sp-build--live .sp-build__name {
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------------- status */
+
+/* Its own line under the class row: the cells above are inline-block, so a block-level chip
+   naturally starts a new one. */
+.planner .character-class #sp-status {
+  cursor: pointer;
+  display: block;
+  font-size: 12px;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.sp-status__dot {
+  font-size: 10px;
+  vertical-align: 1px;
+}
+
+.planner.dark .sp-status--draft {
+  color: #888;
+}
+
+.planner.dark .sp-status--saved {
+  color: #6a9a6a;
+}
+
+.planner.dark .sp-status--dirty {
+  color: #d0a24c;
+}
+
+.planner .sp-status:hover {
+  text-decoration: underline;
 }

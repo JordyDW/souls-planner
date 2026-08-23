@@ -30,6 +30,13 @@
   var FORMAT = 1
   var HASH_PREFIX = '#b='
   var DEBOUNCE_MS = 250
+  var COMPARE_PARAM = 'sp-compare=1'
+
+  /* This page is an off-screen instance loaded by compare mode purely so the planner will do its
+     own maths on a build. It restores the build from the hash exactly as normal, then keeps well
+     clear of everything else - no toolbar, no drawer, and above all no writing to localStorage or
+     the address bar, which belong to the real page that opened it. */
+  var isCompareFrame = window.location.search.indexOf(COMPARE_PARAM) !== -1
 
   /* ------------------------------------------------------------------ helpers */
 
@@ -95,6 +102,15 @@
         { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-upgrade'] },
         { selector: '.planner .rings select', suffixes: [] }
       ],
+      lists: [
+        { key: 'armor', selector: '.planner .armor .wrapper-protector select', extras: ['-reinforce'] },
+        { key: 'weapons', selector: '.planner .weapons .wrapper-weapon select', extras: ['-reinforce', '-upgrade'] },
+        { key: 'rings', selector: '.planner .rings select', extras: [] },
+        { key: 'spells', selector: '.planner .spells select', extras: [], buffs: 'spellBuffs' },
+        { key: 'items', selector: '.planner .items select', extras: [], buffs: 'itemBuffs' },
+        { key: 'arrows', selector: '.planner .arrows select', extras: [] },
+        { key: 'bolts', selector: '.planner .bolts select', extras: [] }
+      ],
       serialize: function () {
         var spells = valuesWithBuffs('.planner .spells select')
         var items = valuesWithBuffs('.planner .items select')
@@ -143,6 +159,13 @@
         { selector: '.weapons .wrapper-weapon select', suffixes: ['-infusion'] },
         { selector: '.rings select', suffixes: [] }
       ],
+      lists: [
+        { key: 'armor', selector: '.armor select', extras: [] },
+        { key: 'weapons', selector: '.weapons .wrapper-weapon select', extras: ['-infusion'] },
+        { key: 'rings', selector: '.rings select', extras: [] },
+        { key: 'spells', selector: '.spells select', extras: [] },
+        { key: 'items', selector: '.items select', extras: [] }
+      ],
       serialize: function () {
         return {
           class_: $('#class').val(),
@@ -180,6 +203,15 @@
         { selector: '.planner .armor select', suffixes: [] },
         { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-infusion'] },
         { selector: '.planner .rings select', suffixes: [] }
+      ],
+      lists: [
+        { key: 'armor', selector: '.planner .armor select', extras: [] },
+        { key: 'weapons', selector: '.planner .weapons .wrapper-weapon select', extras: ['-reinforce', '-infusion'] },
+        { key: 'rings', selector: '.planner .rings select', extras: [] },
+        { key: 'spells', selector: '.planner .spells select', extras: [], buffs: 'spellBuffs' },
+        { key: 'items', selector: '.planner .items select', extras: [], buffs: 'itemBuffs' },
+        { key: 'arrows', selector: '.planner .arrows select', extras: [] },
+        { key: 'bolts', selector: '.planner .bolts select', extras: [] }
       ],
       serialize: function () {
         var spells = valuesWithBuffs('.planner .spells select')
@@ -344,7 +376,13 @@
       var cell = $select.closest('.wrapper-protector, .wrapper-weapon')
       var container = cell.length ? cell : $select.parent()
       var toggleId = 'sp-slot-' + id
-      container.addClass('sp-slot')
+
+      /* The cell has to keep the level it already had: the armour and weapon wrappers sit inline
+         beside a label and a reinforce dropdown, so turning them into a block-level flex container
+         drops them onto their own line, while a ring's row is block-level and would shrink to its
+         contents as inline-flex. Ask the element which it is rather than hardcoding it per game. */
+      var inline = (window.getComputedStyle(container[0]).display || '').indexOf('inline') === 0
+      container.addClass('sp-slot').addClass(inline ? 'sp-slot--inline' : 'sp-slot--block')
 
       $('<input type="checkbox" class="sp-slot-toggle" checked tabindex="-1" />')
         .attr('id', toggleId)
@@ -537,9 +575,10 @@
   var timer = null
 
   function persistNow() {
-    if (suspended) return
+    if (suspended || isCompareFrame) return
     var state = currentState()
     store.set(KEY.autosave, wrap(state.build, state.parked))
+    updateStatus()
     if (!writeHash) return
     try {
       window.history.replaceState(null, '', HASH_PREFIX + encode(state))
@@ -628,6 +667,7 @@
       return null
     }
     toast(index === -1 ? 'Build saved' : 'Build updated')
+    updateStatus()
     return builds[index === -1 ? 0 : index]
   }
 
@@ -687,26 +727,66 @@
   function renderRows() {
     var builds = loadBuilds()
     var currentId = store.get(KEY.currentId, null)
-    var body = $('#builds-dialog .sp-builds tbody').empty()
+    var list = $('#builds-drawer .sp-builds').empty()
 
-    $('#builds-dialog .sp-empty').toggle(builds.length === 0)
-    $('#builds-dialog .sp-builds').toggle(builds.length > 0)
+    $('#builds-drawer .sp-empty').toggle(builds.length === 0)
+
+    /* The build on screen is comparable too - most of the time "how does this differ from the one
+       I saved earlier" is the actual question. */
+    var live = $('<li class="sp-build sp-build--live"></li>').attr('data-id', LIVE_ID)
+    var liveTop = $('<div class="sp-build__top"></div>').appendTo(live)
+    $('<input type="checkbox" class="sp-pick" />').prependTo(liveTop)
+    $('<span class="sp-build__name"></span>').text('Current build').appendTo(liveTop)
+    $('<span class="sp-build__level"></span>').text('SL ' + currentBuild().level).appendTo(liveTop)
+    list.append(live)
 
     for (var i = 0; i < builds.length; i++) {
       var entry = builds[i]
-      var row = $('<tr></tr>').attr('data-id', entry.id)
-      if (entry.id === currentId) row.addClass('sp-builds__row--current')
-      $('<td class="sp-builds__name"></td>').text(entry.name).appendTo(row)
-      $('<td class="sp-builds__level"></td>').text('SL ' + entry.level).appendTo(row)
-      $('<td class="sp-builds__date"></td>').text(entry.updatedAt.slice(0, 10)).appendTo(row)
-      $('<td class="sp-builds__actions"></td>')
+      var row = $('<li class="sp-build"></li>').attr('data-id', entry.id)
+      if (entry.id === currentId) row.addClass('sp-build--current')
+
+      var top = $('<div class="sp-build__top"></div>').appendTo(row)
+      $('<input type="checkbox" class="sp-pick" />').appendTo(top)
+      $('<span class="sp-build__name"></span>').text(entry.name).appendTo(top)
+      $('<span class="sp-build__level"></span>').text('SL ' + entry.level).appendTo(top)
+
+      $('<div class="sp-build__meta"></div>').text(entry.updatedAt.slice(0, 10)).appendTo(row)
+
+      $('<div class="sp-build__actions"></div>')
         .append('<button class="sp-action" data-action="load">Load</button>')
         .append('<button class="sp-action" data-action="share">Copy link</button>')
         .append('<button class="sp-action" data-action="rename">Rename</button>')
         .append('<button class="sp-action" data-action="delete">Delete</button>')
         .appendTo(row)
-      body.append(row)
+
+      list.append(row)
     }
+
+    syncCompareButton()
+  }
+
+  var LIVE_ID = '__current'
+
+  function pickedEntries() {
+    var picked = []
+    $('#builds-drawer .sp-pick:checked').each(function () {
+      var id = $(this).closest('.sp-build').attr('data-id')
+      if (id === LIVE_ID) {
+        picked.push({ name: 'Current build', state: currentState() })
+        return
+      }
+      var builds = loadBuilds()
+      var index = findIndex(builds, id)
+      if (index !== -1) picked.push({ name: builds[index].name, state: stateOf(builds[index]) })
+    })
+    return picked
+  }
+
+  function syncCompareButton() {
+    var count = $('#builds-drawer .sp-pick:checked').length
+    $('#builds-drawer__compare')
+      .prop('disabled', count !== 2)
+      .text(count === 2 ? 'Compare' : 'Compare (pick 2)')
   }
 
   function exportBuilds() {
@@ -747,31 +827,398 @@
     reader.readAsText(file)
   }
 
-  var dialog = null
+  /* ------------------------------------------------------------------- status */
 
-  function buildDialog() {
+  /* "Saved or not" is more useful as a number than as a dot. Because the diff engine already
+     knows how to compare two builds, the status line can say exactly how many things you have
+     changed since you saved - and clicking it shows you which ones, live build against its own
+     saved version. */
+
+  var baseTitle = document.title
+
+  function savedEntry() {
+    var id = store.get(KEY.currentId, null)
+    if (!id) return null
+    var builds = loadBuilds()
+    var index = findIndex(builds, id)
+    return index === -1 ? null : builds[index]
+  }
+
+  function relativeTime(iso) {
+    var then = new Date(iso).getTime()
+    if (isNaN(then)) return ''
+    var seconds = Math.round((nowMs() - then) / 1000)
+    if (seconds < 60) return 'just now'
+    var minutes = Math.round(seconds / 60)
+    if (minutes < 60) return minutes + ' min ago'
+    var hours = Math.round(minutes / 60)
+    if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago')
+    return iso.slice(0, 10)
+  }
+
+  function nowMs() {
+    return new Date().getTime()
+  }
+
+  function updateStatus() {
+    var chip = $('#sp-status')
+    if (!chip.length) return
+
+    var entry = savedEntry()
+    chip.removeClass('sp-status--draft sp-status--saved sp-status--dirty')
+
+    if (!entry) {
+      chip
+        .addClass('sp-status--draft')
+        .attr('title', 'This build is only in your browser and the link. Click to give it a name.')
+        .html('<span class="sp-status__dot">○</span> Unsaved draft')
+      document.title = baseTitle
+      return
+    }
+
+    var changes = diffBuilds(stateOf(entry), currentState())
+    if (!changes.length) {
+      chip
+        .addClass('sp-status--saved')
+        .attr('title', 'Saved ' + relativeTime(entry.updatedAt))
+        .html('<span class="sp-status__dot">●</span> ')
+        .append($('<span></span>').text(entry.name))
+        .append(document.createTextNode(' · saved'))
+      document.title = baseTitle
+      return
+    }
+
+    chip
+      .addClass('sp-status--dirty')
+      .attr('title', 'Click to see what changed since you saved. Ctrl+S saves.')
+      .html('<span class="sp-status__dot">●</span> ')
+      .append($('<span></span>').text(entry.name))
+      .append(document.createTextNode(' · ' + changes.length + (changes.length === 1 ? ' unsaved change' : ' unsaved changes')))
+    /* Visible in the tab strip, which matters when several planners are open at once. */
+    document.title = '● ' + baseTitle
+  }
+
+  function buildStatus() {
+    var host = $('.planner .character-class')
+    if (!host.length) return
+    $('<div id="sp-status" class="sp-status"></div>')
+      .appendTo(host)
+      .on('click', function () {
+        var entry = savedEntry()
+        if (!entry) {
+          saveCurrent(false)
+          updateStatus()
+          return
+        }
+        if (!diffBuilds(stateOf(entry), currentState()).length) {
+          openDrawer()
+          return
+        }
+        openDrawer()
+        runCompare({ name: entry.name + ' (saved)', state: stateOf(entry) }, { name: 'Current build', state: currentState() })
+      })
+    updateStatus()
+  }
+
+  /* ----------------------------------------------------------------- compare */
+
+  /* Comparing two builds needs more than their stored fields: what you actually want to know is
+     which one ends up tankier, and that lives in numbers the planner derives. Rather than
+     reimplement any of that arithmetic, each build is loaded into an off-screen same-origin
+     iframe of this very page and its results panel is read back - so the figures are, by
+     construction, the ones the planner itself would show. */
+
+  /* Longest first: DS 2 adds "-def-bonus" columns alongside the plain "-def" ones, and matching
+     the short suffix first would label them both the same. */
+  var RESULT_SUFFIXES = [
+    ['-def-bonus', ' (def bonus)'],
+    ['-res-bonus', ' (res bonus)'],
+    ['-abs', ' (abs)'],
+    ['-def', ' (def)'],
+    ['-res', ' (res)']
+  ]
+
+  /* Rows in the defence/absorption grid carry one label for several columns, so the absorption
+     and armour-resistance inputs have no label of their own to borrow - their name has to come
+     from the id instead. */
+  function labelFromId(id) {
+    return id
+      .replace(/^armor-/, '')
+      .replace(/-(def|res)-bonus$/, '')
+      .replace(/-(def|abs|res)$/, '')
+      .replace(/-/g, ' ')
+      .replace(/^./, function (c) { return c.toUpperCase() })
+  }
+
+  function resultLabel(el, doc) {
+    var id = el.id
+    var base = $(el).closest('div', doc).find('label').first().text().replace(/^\s+|\s+$/g, '')
+
+    for (var i = 0; i < RESULT_SUFFIXES.length; i++) {
+      var suffix = RESULT_SUFFIXES[i][0]
+      if (id.slice(-suffix.length) !== suffix) continue
+      /* An armour resistance and a character resistance would otherwise both read "Bleed (res)". */
+      var armour = id.indexOf('armor-') === 0
+      return (armour || !base ? labelFromId(id) : base) + (armour ? ' (armor)' : RESULT_SUFFIXES[i][1])
+    }
+    return base || labelFromId(id)
+  }
+
+  /* Everything the planner reports about a finished build, in the order it displays it. */
+  function readResults(doc) {
+    var rows = []
+    var seen = {}
+    $('.planner .perfomance-1, .planner .perfomance-2', doc).find('input[readonly], output').each(function () {
+      if (!this.id) return
+      var label = resultLabel(this, doc)
+      if (seen[label]) label += ' [' + this.id + ']'
+      seen[label] = true
+      rows.push({ id: this.id, label: label, value: this.value !== undefined ? this.value : $(this).text() })
+    })
+    return rows
+  }
+
+  function compareUrl(state) {
+    var base = baseUrl()
+    return base + (base.indexOf('?') === -1 ? '?' : '&') + COMPARE_PARAM + HASH_PREFIX + encode(state)
+  }
+
+  /* Loads each state in its own frame and hands back their results panels. */
+  function computeStates(states, done) {
+    var results = new Array(states.length)
+    var frames = []
+    var pending = states.length
+
+    function finish() {
+      for (var f = 0; f < frames.length; f++) {
+        if (frames[f].parentNode) frames[f].parentNode.removeChild(frames[f])
+      }
+      done(results)
+    }
+
+    for (var i = 0; i < states.length; i++) {
+      ;(function (index) {
+        var frame = document.createElement('iframe')
+        frame.className = 'sp-compare-frame'
+        frame.setAttribute('aria-hidden', 'true')
+        frame.setAttribute('tabindex', '-1')
+        frame.src = compareUrl(states[index])
+        document.body.appendChild(frame)
+        frames.push(frame)
+
+        var tries = 0
+        var poll = window.setInterval(function () {
+          tries++
+          var ready = false
+          try {
+            ready = !!(frame.contentWindow && frame.contentWindow.spCompareReady)
+          } catch (e) {
+            ready = false
+          }
+          /* ~10s before giving up on a frame; the bundle is big but it is served locally. */
+          if (!ready && tries < 200) return
+          window.clearInterval(poll)
+          try {
+            results[index] = ready ? readResults(frame.contentDocument) : null
+          } catch (e) {
+            results[index] = null
+          }
+          if (--pending === 0) finish()
+        }, 50)
+      })(i)
+    }
+  }
+
+  /* ------------------------------------------------------------- input diffing */
+
+  var FIELD_LABELS = {
+    class_: 'Class',
+    level: 'Level',
+    gender: 'Gender',
+    covenant: 'Covenant',
+    covenantLevel: 'Covenant level',
+    grip: 'Two-handed',
+    isPVP: 'PvP mode',
+    isLowHP: 'Low HP',
+    isFullHP: 'Full HP',
+    isDragonHead: 'Dragon head stone',
+    isDragonTorso: 'Dragon torso stone',
+    useSkillLH1: 'Left hand skill',
+    useSkillRH1: 'Right hand skill'
+  }
+
+  var SCALAR_SELECT = {
+    class_: '#class',
+    gender: '#gender',
+    covenant: '#covenant',
+    covenantLevel: '#covenant-level'
+  }
+
+  /* Purely which stat panel a weapon slot is showing - not part of the build. */
+  var IGNORED_FIELDS = { weaponsParamVisible: true, level: true }
+
+  function prettify(key) {
+    if (FIELD_LABELS[key]) return FIELD_LABELS[key]
+    return key.charAt(0).toUpperCase() + key.slice(1).replace(/-/g, ' ')
+  }
+
+  /* head -> Head, ring-1 -> Ring 1, rh1 -> RH1, spell-12 -> Spell 12 */
+  function slotLabel(id) {
+    if (/^[lr]h\d$/.test(id)) return id.toUpperCase()
+    return id
+      .replace(/-/g, ' ')
+      .replace(/(\d+)/, ' $1')
+      .replace(/\s+/g, ' ')
+      .replace(/^./, function (c) { return c.toUpperCase() })
+  }
+
+  function isBoolField(key, value) {
+    return key === 'grip' || key.indexOf('is') === 0 || key.indexOf('useSkill') === 0
+      ? value === 0 || value === 1 || value === '0' || value === '1'
+      : false
+  }
+
+  function scalarText(key, value) {
+    if (value === undefined || value === null || value === '') return '—'
+    if (isBoolField(key, value)) return Number(value) ? 'yes' : 'no'
+    if (SCALAR_SELECT[key]) {
+      var $select = $(SCALAR_SELECT[key])
+      if ($select.length) return optionText($select, String(value)) || String(value)
+    }
+    return String(value)
+  }
+
+  /* Reads an entry out of one of the semicolon-joined list fields, resolving ids to the names the
+     planner itself shows by looking them up in that slot's own dropdown. */
+  function listEntryText(list, values, index, parkedMap, buffs) {
+    var $select = $('#' + list.ids[index])
+    var stride = 1 + list.extras.length
+    var base = values[index * stride]
+    var parkedValues = parkedMap && parkedMap[list.ids[index]]
+    var text
+
+    if (parkedValues) {
+      text = (optionText($select, parkedValues[0]) || parkedValues[0]) + ' (parked)'
+    } else {
+      text = optionText($select, base) || (base === '-1' || base === undefined ? '—' : base)
+      for (var e = 0; e < list.extras.length; e++) {
+        var extraValue = values[index * stride + 1 + e]
+        if (extraValue === undefined) continue
+        var suffix = list.extras[e]
+        if (suffix === '-reinforce') {
+          if (Number(extraValue) > 0) text += ' +' + extraValue
+        } else {
+          var $extra = $('#' + list.ids[index] + suffix)
+          var extraText = $extra.length ? optionText($extra, extraValue) : ''
+          if (extraText && !/^no /i.test(extraText)) text += ' (' + extraText + ')'
+          else if (!extraText && extraValue && extraValue !== '0') text += ' (' + extraValue + ')'
+        }
+      }
+    }
+
+    if (buffs && Number(buffs[index]) === 1) text += ' [buff on]'
+    return text
+  }
+
+  function resolveListIds(list) {
+    if (!list.ids) {
+      list.ids = $(list.selector).map(function () { return this.id }).get()
+    }
+    return list
+  }
+
+  function splitField(build, key) {
+    var raw = build[key]
+    return typeof raw === 'string' ? raw.split(';') : []
+  }
+
+  /* What actually differs between two builds, in planner order and in planner words. */
+  function diffBuilds(a, b) {
+    var changes = []
+    var handled = { }
+    var lists = adapter.lists || []
+    var i
+
+    for (i = 0; i < lists.length; i++) {
+      var list = resolveListIds(lists[i])
+      handled[list.key] = true
+      if (list.buffs) handled[list.buffs] = true
+
+      var aValues = splitField(a.build, list.key)
+      var bValues = splitField(b.build, list.key)
+      var aBuffs = list.buffs ? splitField(a.build, list.buffs) : null
+      var bBuffs = list.buffs ? splitField(b.build, list.buffs) : null
+
+      for (var slot = 0; slot < list.ids.length; slot++) {
+        var aText = listEntryText(list, aValues, slot, a.parked, aBuffs)
+        var bText = listEntryText(list, bValues, slot, b.parked, bBuffs)
+        if (aText !== bText) changes.push({ label: slotLabel(list.ids[slot]), a: aText, b: bText })
+      }
+    }
+
+    for (var k = 0; k < adapter.required.length; k++) {
+      var key = adapter.required[k]
+      if (handled[key] || IGNORED_FIELDS[key]) continue
+      var aRaw = a.build[key]
+      var bRaw = b.build[key]
+      if (String(aRaw) === String(bRaw)) continue
+      var change = { label: prettify(key), a: scalarText(key, aRaw), b: scalarText(key, bRaw) }
+      if (!isNaN(parseFloat(aRaw)) && !isNaN(parseFloat(bRaw)) && !isBoolField(key, aRaw)) {
+        change.delta = parseFloat(bRaw) - parseFloat(aRaw)
+      }
+      changes.push(change)
+    }
+
+    return changes
+  }
+
+  /* Leading number of things like "764 (993)" or "34.2 / 69.0 - 49.6%", so a delta can be shown
+     for the values where one is meaningful. */
+  function leadingNumber(text) {
+    var match = /^-?\d+(\.\d+)?/.exec(String(text).replace(/^\s+/, ''))
+    return match ? parseFloat(match[0]) : null
+  }
+
+  function formatDelta(delta, decimals) {
+    var rounded = Math.round(delta * Math.pow(10, decimals)) / Math.pow(10, decimals)
+    if (rounded === 0) return ''
+    return (rounded > 0 ? '+' : '−') + Math.abs(rounded).toFixed(decimals)
+  }
+
+  /* ------------------------------------------------------------------ drawer */
+
+  /* A drawer rather than a modal so the planner stays usable while it is open - you can leave the
+     list up, tweak a stat, and save again without closing anything. Deliberately no overlay and
+     no click-outside-to-close for the same reason. */
+
+  function buildDrawer() {
     var markup =
-      '<div id="builds-dialog" class="form-controls">' +
+      '<aside id="builds-drawer" class="sp-drawer" aria-hidden="true">' +
+      '<header class="sp-drawer__head">' +
       '<h2>Saved builds</h2>' +
-      '<div class="sp-dialog__body">' +
-      '<table class="sp-builds"><tbody></tbody></table>' +
+      '<button type="button" class="sp-drawer__close" title="Close (Esc)" aria-label="Close">&times;</button>' +
+      '</header>' +
+      '<div class="sp-drawer__body">' +
+      '<div class="sp-pane sp-pane--list">' +
+      '<ul class="sp-builds"></ul>' +
       '<p class="sp-empty">No saved builds yet. Use the save button to keep this one.</p>' +
       '</div>' +
-      '<footer>' +
-      '<button class="default" id="builds-dialog__save-as">Save current as new</button>' +
-      '<button id="builds-dialog__export">Export</button>' +
-      '<button id="builds-dialog__import">Import</button>' +
-      '<button id="builds-dialog__close">Close</button>' +
+      '<div class="sp-pane sp-pane--compare"></div>' +
+      '</div>' +
+      '<footer class="sp-drawer__foot">' +
+      '<button class="default" id="builds-drawer__save-as">Save current as new</button>' +
+      '<button id="builds-drawer__compare" disabled>Compare (pick 2)</button>' +
+      '<button id="builds-drawer__export">Export</button>' +
+      '<button id="builds-drawer__import">Import</button>' +
       '</footer>' +
       '<input type="file" accept="application/json" class="sp-file" />' +
-      '</div>'
+      '</aside>'
 
-    /* Sit alongside the planner's own dialogs so ModalDialog's overlay handling behaves. */
-    var el = $(markup).appendTo($('.modal-overlay').length ? $('.modal-overlay') : document.body)
+    var el = $(markup).appendTo(document.body)
 
     el.on('click', '.sp-action', function () {
       var action = $(this).attr('data-action')
-      var id = $(this).closest('tr').attr('data-id')
+      var id = $(this).closest('.sp-build').attr('data-id')
       var builds = loadBuilds()
       var index = findIndex(builds, id)
       if (index === -1) return
@@ -798,32 +1245,153 @@
       }
     })
 
-    el.find('#builds-dialog__save-as').on('click', function () {
+    el.on('change', '.sp-pick', function () {
+      /* Two at a time: past that a side-by-side stops being readable. */
+      if ($('#builds-drawer .sp-pick:checked').length > 2) $(this).prop('checked', false)
+      syncCompareButton()
+    })
+
+    el.find('#builds-drawer__compare').on('click', function () {
+      var picked = pickedEntries()
+      if (picked.length !== 2) return
+      runCompare(picked[0], picked[1])
+    })
+
+    el.on('click', '.sp-back', showList)
+
+    el.find('#builds-drawer__save-as').on('click', function () {
       if (saveCurrent(true)) renderRows()
     })
-    el.find('#builds-dialog__export').on('click', exportBuilds)
-    el.find('#builds-dialog__import').on('click', function () {
+    el.find('#builds-drawer__export').on('click', exportBuilds)
+    el.find('#builds-drawer__import').on('click', function () {
       el.find('.sp-file').val('').trigger('click')
     })
     el.find('.sp-file').on('change', function () {
       if (this.files && this.files[0]) importBuilds(this.files[0])
     })
-    el.find('#builds-dialog__close').on('click', function () {
-      dialog.close()
+    el.find('.sp-drawer__close').on('click', closeDrawer)
+
+    $(document).on('keydown', function (event) {
+      if (event.which === 27 && drawerIsOpen()) closeDrawer()
     })
 
     return el
   }
 
-  function openDialog() {
-    if (!dialog) {
-      buildDialog()
-      dialog = new ModalDialog($('#builds-dialog'), function () {
-        dialog.close()
-      })
+  /* --------------------------------------------------------- compare rendering */
+
+  function decimalsOf(text) {
+    var match = /^-?\d+\.(\d+)/.exec(String(text))
+    return match ? match[1].length : 0
+  }
+
+  function showList() {
+    $('#builds-drawer').removeClass('sp-drawer--wide')
+    $('#builds-drawer .sp-pane--list').show()
+    $('#builds-drawer .sp-pane--compare').hide()
+    $('#builds-drawer .sp-drawer__foot').show()
+  }
+
+  function showComparePane() {
+    $('#builds-drawer').addClass('sp-drawer--wide')
+    $('#builds-drawer .sp-pane--list').hide()
+    $('#builds-drawer .sp-pane--compare').show()
+    $('#builds-drawer .sp-drawer__foot').hide()
+  }
+
+  function runCompare(a, b) {
+    showComparePane()
+    $('#builds-drawer .sp-pane--compare')
+      .empty()
+      .append('<button type="button" class="sp-back">&larr; Back to builds</button>')
+      .append($('<p class="sp-empty"></p>').text('Calculating both builds…'))
+
+    computeStates([a.state, b.state], function (results) {
+      renderCompare(a, b, results[0], results[1])
+    })
+  }
+
+  function compareTable(rows, withDelta) {
+    var table = $('<table class="sp-cmp"></table>')
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      var tr = $('<tr></tr>').toggleClass('sp-cmp--diff', !!row.differs)
+      $('<th></th>').text(row.label).appendTo(tr)
+      $('<td></td>').text(row.a).appendTo(tr)
+      $('<td></td>').text(row.b).appendTo(tr)
+      if (withDelta) {
+        var cell = $('<td class="sp-cmp__delta"></td>').text(row.delta || '')
+        if (row.delta) cell.addClass(row.delta.charAt(0) === '+' ? 'sp-cmp__delta--up' : 'sp-cmp__delta--down')
+        cell.appendTo(tr)
+      }
+      table.append(tr)
     }
+    return table
+  }
+
+  function renderCompare(a, b, resultsA, resultsB) {
+    var pane = $('#builds-drawer .sp-pane--compare').empty()
+    pane.append('<button type="button" class="sp-back">&larr; Back to builds</button>')
+
+    $('<div class="sp-cmp__names"></div>')
+      .append($('<span></span>').text(a.name))
+      .append($('<span></span>').text(b.name))
+      .appendTo(pane)
+
+    if (resultsA && resultsB) {
+      var resultRows = []
+      for (var i = 0; i < resultsA.length; i++) {
+        var ra = resultsA[i]
+        var rb = resultsB[i] || { value: '' }
+        var differs = ra.value !== rb.value
+        var na = leadingNumber(ra.value)
+        var nb = leadingNumber(rb.value)
+        resultRows.push({
+          label: ra.label,
+          a: ra.value,
+          b: rb.value,
+          differs: differs,
+          delta: differs && na !== null && nb !== null ? formatDelta(nb - na, decimalsOf(ra.value)) : ''
+        })
+      }
+      $('<h3></h3>').text('Result').appendTo(pane)
+      compareTable(resultRows, true).appendTo(pane)
+    } else {
+      $('<p class="sp-empty"></p>')
+        .text('Could not calculate one of the builds - the planner did not finish loading in time.')
+        .appendTo(pane)
+    }
+
+    var changes = diffBuilds(a.state, b.state)
+    $('<h3></h3>').text(changes.length ? 'Changed (' + changes.length + ')' : 'Changed').appendTo(pane)
+    if (changes.length) {
+      for (var c = 0; c < changes.length; c++) changes[c].differs = true
+      compareTable(changes, false).appendTo(pane)
+    } else {
+      $('<p class="sp-empty"></p>').text('These two builds are identical.').appendTo(pane)
+    }
+  }
+
+  function drawerIsOpen() {
+    return $('#builds-drawer').hasClass('sp-drawer--open')
+  }
+
+  function openDrawer() {
+    if (!$('#builds-drawer').length) buildDrawer()
     renderRows()
-    dialog.show()
+    $('#builds-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
+    $('#sp-button-builds').addClass('sp-button--active')
+  }
+
+  function closeDrawer() {
+    showList()
+    $('#builds-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
+    $('#sp-button-builds').removeClass('sp-button--active')
+  }
+
+  function toggleDrawer() {
+    if (drawerIsOpen()) closeDrawer()
+    else openDrawer()
   }
 
   function buildToolbar() {
@@ -837,7 +1405,7 @@
       .appendTo(options)
 
     $('<button class="material-icons" id="sp-button-builds" title="Saved builds">folder</button>')
-      .on('click', openDialog)
+      .on('click', toggleDrawer)
       .appendTo(options)
 
     $('<button class="material-icons" id="sp-button-share" title="Copy share link">link</button>')
@@ -877,10 +1445,18 @@
   $(document).ready(function () {
     if (!$('.planner').length) return
 
+    if (isCompareFrame) {
+      /* By the time this runs the planner has already applied the build from the hash and done
+         its own recalculation - which is the entire reason this frame exists. Flag it and stop. */
+      window.spCompareReady = true
+      return
+    }
+
     buildToolbar()
     rebindStockButtons()
     buildToggles()
     applyParked(restoredParked)
+    buildStatus()
 
     /* Choosing something for a parked slot obviously means you want it back. */
     $('.planner').on('change', 'select', function () {
