@@ -828,7 +828,9 @@
       level: state.build.level,
       updatedAt: new Date().toISOString(),
       build: state.build,
-      parked: state.parked
+      parked: state.parked,
+      notes: '',
+      tags: []
     }
   }
 
@@ -926,15 +928,140 @@
     toast(copied ? 'Share link copied' : 'Copy failed - link is in the address bar')
   }
 
+  /* --------------------------------------------------------- list, filtered */
+
+  var KEY_SORT = 'soulsPlanner.drawerSort.' + game
+  var tagFilter = null
+
+  function searchTerm() {
+    return ($('#builds-drawer .sp-search').val() || '').toLowerCase().replace(/^\s+|\s+$/g, '')
+  }
+
+  function entryTags(entry) {
+    return Object.prototype.toString.call(entry.tags) === '[object Array]' ? entry.tags : []
+  }
+
+  function matchesSearch(entry, term) {
+    if (!term) return true
+    var haystack = [entry.name, entry.notes || '', entryTags(entry).join(' ')].join(' ').toLowerCase()
+    return haystack.indexOf(term) !== -1
+  }
+
+  function sortedBuilds(builds) {
+    var mode = store.get(KEY_SORT, 'recent')
+    var copy = builds.slice()
+    copy.sort(function (a, b) {
+      if (mode === 'name') return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1
+      if (mode === 'level') return (parseInt(b.level, 10) || 0) - (parseInt(a.level, 10) || 0)
+      return a.updatedAt < b.updatedAt ? 1 : -1
+    })
+    return copy
+  }
+
+  function allTags(builds) {
+    var seen = {}
+    var out = []
+    for (var i = 0; i < builds.length; i++) {
+      var tags = entryTags(builds[i])
+      for (var t = 0; t < tags.length; t++) {
+        if (seen[tags[t]]) continue
+        seen[tags[t]] = true
+        out.push(tags[t])
+      }
+    }
+    return out.sort()
+  }
+
+  function renderTagStrip(builds) {
+    var strip = $('#builds-drawer .sp-tags').empty()
+    var tags = allTags(builds)
+    strip.toggle(tags.length > 0)
+    for (var i = 0; i < tags.length; i++) {
+      $('<button type="button" class="sp-tag"></button>')
+        .text(tags[i])
+        .attr('data-tag', tags[i])
+        .toggleClass('sp-tag--on', tagFilter === tags[i])
+        .appendTo(strip)
+    }
+  }
+
+  function buildRow(entry, currentId) {
+    var row = $('<li class="sp-build"></li>').attr('data-id', entry.id)
+    if (entry.id === currentId) row.addClass('sp-build--current')
+
+    var top = $('<div class="sp-build__top"></div>').appendTo(row)
+    $('<input type="checkbox" class="sp-pick" />').appendTo(top)
+    $('<span class="sp-build__name"></span>').text(entry.name).appendTo(top)
+    $('<span class="sp-build__level"></span>').text('SL ' + entry.level).appendTo(top)
+
+    $('<div class="sp-build__meta"></div>').text(entry.updatedAt.slice(0, 10)).appendTo(row)
+
+    if (entry.notes) $('<div class="sp-build__notes"></div>').text(entry.notes).appendTo(row)
+
+    var tags = entryTags(entry)
+    if (tags.length) {
+      var chips = $('<div class="sp-build__tags"></div>').appendTo(row)
+      for (var t = 0; t < tags.length; t++) {
+        $('<span class="sp-chip"></span>').text(tags[t]).appendTo(chips)
+      }
+    }
+
+    $('<div class="sp-build__actions"></div>')
+      .append('<button class="sp-action" data-action="load">Load</button>')
+      .append('<button class="sp-action" data-action="share">Copy link</button>')
+      .append('<button class="sp-action" data-action="duplicate">Duplicate</button>')
+      .append('<button class="sp-action" data-action="edit">Edit</button>')
+      .append('<button class="sp-action" data-action="delete">Delete</button>')
+      .appendTo(row)
+
+    return row
+  }
+
+  /* One inline editor for name, notes and tags, instead of a chain of window.prompt calls. */
+  function openEditor(row, entry) {
+    if (row.find('.sp-editor').length) return
+
+    var editor = $('<div class="sp-editor"></div>')
+    var name = $('<input type="text" class="sp-editor__name" />').val(entry.name)
+    var notes = $('<textarea class="sp-editor__notes" rows="3"></textarea>')
+      .val(entry.notes || '')
+      .attr('placeholder', 'What is this build for?')
+    var tags = $('<input type="text" class="sp-editor__tags" />')
+      .val(entryTags(entry).join(', '))
+      .attr('placeholder', 'tags, comma separated')
+
+    var actions = $('<div class="sp-editor__actions"></div>')
+      .append('<button class="sp-action" data-action="save-edit">Save</button>')
+      .append('<button class="sp-action" data-action="cancel-edit">Cancel</button>')
+
+    editor.append(name).append(notes).append(tags).append(actions)
+    row.append(editor)
+    name.focus()
+  }
+
   function renderRows() {
-    var builds = loadBuilds()
+    var all = loadBuilds()
     var currentId = store.get(KEY.currentId, null)
     var list = $('#builds-drawer .sp-builds').empty()
+    var term = searchTerm()
 
-    $('#builds-drawer .sp-empty').toggle(builds.length === 0)
+    renderTagStrip(all)
+
+    var builds = sortedBuilds(all).filter(function (entry) {
+      if (tagFilter && entryTags(entry).indexOf(tagFilter) === -1) return false
+      return matchesSearch(entry, term)
+    })
+
+    $('#builds-drawer .sp-empty')
+      .toggle(builds.length === 0)
+      .text(
+        all.length === 0
+          ? 'No saved builds yet. Use the save button to keep this one.'
+          : 'Nothing matches that filter.'
+      )
 
     /* The build on screen is comparable too - most of the time "how does this differ from the one
-       I saved earlier" is the actual question. */
+       I saved earlier" is the actual question. It is never filtered out. */
     var live = $('<li class="sp-build sp-build--live"></li>').attr('data-id', LIVE_ID)
     var liveTop = $('<div class="sp-build__top"></div>').appendTo(live)
     $('<input type="checkbox" class="sp-pick" />').prependTo(liveTop)
@@ -942,27 +1069,7 @@
     $('<span class="sp-build__level"></span>').text('SL ' + currentBuild().level).appendTo(liveTop)
     list.append(live)
 
-    for (var i = 0; i < builds.length; i++) {
-      var entry = builds[i]
-      var row = $('<li class="sp-build"></li>').attr('data-id', entry.id)
-      if (entry.id === currentId) row.addClass('sp-build--current')
-
-      var top = $('<div class="sp-build__top"></div>').appendTo(row)
-      $('<input type="checkbox" class="sp-pick" />').appendTo(top)
-      $('<span class="sp-build__name"></span>').text(entry.name).appendTo(top)
-      $('<span class="sp-build__level"></span>').text('SL ' + entry.level).appendTo(top)
-
-      $('<div class="sp-build__meta"></div>').text(entry.updatedAt.slice(0, 10)).appendTo(row)
-
-      $('<div class="sp-build__actions"></div>')
-        .append('<button class="sp-action" data-action="load">Load</button>')
-        .append('<button class="sp-action" data-action="share">Copy link</button>')
-        .append('<button class="sp-action" data-action="rename">Rename</button>')
-        .append('<button class="sp-action" data-action="delete">Delete</button>')
-        .appendTo(row)
-
-      list.append(row)
-    }
+    for (var i = 0; i < builds.length; i++) list.append(buildRow(builds[i], currentId))
 
     syncCompareButton()
   }
@@ -1062,11 +1169,22 @@
     return new Date().getTime()
   }
 
+  /* The mirror kept the original site's build-description block - markup, styling and all - and
+     simply hides it while empty. That makes it exactly the right home for build notes. */
+  function updateDescription(entry) {
+    var output = $('#build-description')
+    if (!output.length) return
+    var notes = entry && entry.notes ? entry.notes : ''
+    output.text(notes)
+    output.parent().toggle(notes.length > 0)
+  }
+
   function updateStatus() {
     var chip = $('#sp-status')
     if (!chip.length) return
 
     var entry = savedEntry()
+    updateDescription(entry)
     chip.removeClass('sp-status--draft sp-status--saved sp-status--dirty')
 
     if (!entry) {
@@ -1402,6 +1520,15 @@
       '</header>' +
       '<div class="sp-drawer__body">' +
       '<div class="sp-pane sp-pane--list">' +
+      '<div class="sp-filters">' +
+      '<input type="search" class="sp-search" placeholder="Search name, notes, tags" />' +
+      '<select class="sp-sort">' +
+      '<option value="recent">Recent</option>' +
+      '<option value="name">Name</option>' +
+      '<option value="level">Level</option>' +
+      '</select>' +
+      '</div>' +
+      '<div class="sp-tags"></div>' +
       '<ul class="sp-builds"></ul>' +
       '<p class="sp-empty">No saved builds yet. Use the save button to keep this one.</p>' +
       '</div>' +
@@ -1430,14 +1557,36 @@
         applyBuild(stateOf(builds[index]))
       } else if (action === 'share') {
         copyToClipboard(shareUrl(stateOf(builds[index])))
-      } else if (action === 'rename') {
-        var name = window.prompt('Rename build:', builds[index].name)
-        if (name === null) return
-        name = name.replace(/^\s+|\s+$/g, '')
-        if (!name) return
-        builds[index].name = name
+      } else if (action === 'duplicate') {
+        var copy = entryFor(builds[index].name + ' copy', stateOf(builds[index]))
+        copy.notes = builds[index].notes || ''
+        copy.tags = entryTags(builds[index]).slice()
+        builds.unshift(copy)
         saveBuilds(builds)
         renderRows()
+        toast('Duplicated')
+      } else if (action === 'edit') {
+        openEditor($(this).closest('.sp-build'), builds[index])
+      } else if (action === 'save-edit') {
+        var row = $(this).closest('.sp-build')
+        var newName = row.find('.sp-editor__name').val().replace(/^\s+|\s+$/g, '')
+        if (newName) builds[index].name = newName
+        builds[index].notes = row.find('.sp-editor__notes').val().replace(/^\s+|\s+$/g, '')
+        builds[index].tags = row
+          .find('.sp-editor__tags')
+          .val()
+          .split(',')
+          .map(function (tag) {
+            return tag.replace(/^\s+|\s+$/g, '')
+          })
+          .filter(function (tag) {
+            return tag.length > 0
+          })
+        saveBuilds(builds)
+        renderRows()
+        updateStatus()
+      } else if (action === 'cancel-edit') {
+        $(this).closest('.sp-build').find('.sp-editor').remove()
       } else if (action === 'delete') {
         if (!window.confirm('Delete "' + builds[index].name + '"?')) return
         builds.splice(index, 1)
@@ -1445,6 +1594,21 @@
         if (store.get(KEY.currentId, null) === id) store.remove(KEY.currentId)
         renderRows()
       }
+    })
+
+    el.on('input', '.sp-search', function () {
+      renderRows()
+    })
+
+    el.on('change', '.sp-sort', function () {
+      store.set(KEY_SORT, $(this).val())
+      renderRows()
+    })
+
+    el.on('click', '.sp-tag', function () {
+      var tag = $(this).attr('data-tag')
+      tagFilter = tagFilter === tag ? null : tag
+      renderRows()
     })
 
     el.on('change', '.sp-pick', function () {
@@ -1579,7 +1743,10 @@
   }
 
   function openDrawer() {
-    if (!$('#builds-drawer').length) buildDrawer()
+    if (!$('#builds-drawer').length) {
+      buildDrawer()
+      $('#builds-drawer .sp-sort').val(store.get(KEY_SORT, 'recent'))
+    }
     renderRows()
     $('#builds-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
     $('#sp-button-builds').addClass('sp-button--active')

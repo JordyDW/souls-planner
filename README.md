@@ -69,6 +69,17 @@ The count is a real diff rather than a "something changed" flag, so reverting an
 takes it back down. While there are unsaved changes the browser tab title gets a ● in front of
 it, which is what you want when several planners are open at once.
 
+### Keeping builds organised
+
+Each saved build can carry **notes** and **tags**, edited together with its name from *Edit* in
+the drawer. Notes for the build you have loaded also appear in the planner itself, in the
+description block under the equipment — that block is original to the site and was simply sitting
+there hidden because nothing ever filled it.
+
+The drawer has a search box (name, notes and tags), a sort control (recent, name or level, and it
+remembers your choice), a strip of your tags to filter by, and a *Duplicate* action for when a new
+build starts life as a variation on an old one.
+
 ### Comparing two builds
 
 Tick two builds in the drawer and press Compare. The current build counts as one of the two, so
