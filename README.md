@@ -69,6 +69,16 @@ The count is a real diff rather than a "something changed" flag, so reverting an
 takes it back down. While there are unsaved changes the browser tab title gets a ● in front of
 it, which is what you want when several planners are open at once.
 
+### Undo
+
+`Ctrl`+`Z` steps back through your last 50 changes and `Ctrl`+`Shift`+`Z` (or `Ctrl`+`Y`) steps
+forward again. Equipment, stats, infusions, toggles and parked slots all come back, and loading a
+saved build counts as a step, so you can undo that too. Inside the drawer's text boxes `Ctrl`+`Z`
+is left to the browser, where you would want it for typing.
+
+Loading a build no longer reloads the page either — it applies in place, which is what made undo
+possible in the first place.
+
 ### Keeping builds organised
 
 Each saved build can carry **notes** and **tags**, edited together with its name from *Edit* in

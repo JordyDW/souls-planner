@@ -779,6 +779,7 @@
   function persistNow() {
     if (suspended || isCompareFrame) return
     var state = currentState()
+    pushHistory(state)
     store.set(KEY.autosave, wrap(state.build, state.parked))
     updateStatus()
     if (!writeHash) return
@@ -791,6 +792,8 @@
   }
 
   function schedulePersist() {
+    /* applyStateToDom fires a lot of changes on purpose; it persists once itself at the end. */
+    if (applying) return
     window.clearTimeout(timer)
     timer = window.setTimeout(persistNow, DEBOUNCE_MS)
   }
@@ -885,12 +888,14 @@
   }
 
   function applyBuild(state) {
-    /* The planner only applies savedBuild during its ready handler, so re-entering a build means
-       reloading the page with it in the hash - which is also exactly what a shared link does. */
-    suspended = true
+    /* Now that a state can be put straight into the live DOM, loading a build no longer costs a
+       page reload - and it lands in the undo timeline like any other change. */
+    applyStateToDom(state)
     window.clearTimeout(timer)
-    window.location.href = shareUrl(state)
-    window.location.reload()
+    persistNow()
+    updateStatus()
+    renderRows()
+    toast('Build loaded')
   }
 
   /* ------------------------------------------------------------------- UI */
@@ -1134,6 +1139,162 @@
       }
     }
     reader.readAsText(file)
+  }
+
+  /* --------------------------------------------------------------- undo / redo */
+
+  /* Restoring a build normally means reloading the page, because the planner only applies
+     savedBuild inside its ready handler. That is far too heavy for Ctrl+Z, so this puts a state
+     back into the live DOM instead, using the same approach parkSlot/unparkSlot already rely on.
+     Three things make it work:
+
+       - Class, gender, covenant and the attributes are set SILENTLY - value plus a select2 UI
+         nudge, never a real change event. Firing change on #class runs the planner's class
+         handler, which resets every attribute to that class's base values and would undo the
+         attributes we are in the middle of restoring. The bundle's own applier avoids it for
+         exactly this reason.
+       - Weapon slots do need a real change, because that is what makes the planner rebuild that
+         slot's reinforce and infusion lists; the extras are then set in reverse order, matching
+         the order the planner's own applier uses.
+       - It finishes by provoking one recalculation. The planner's recalc is a closure we cannot
+         call, so the only way to ask for it is to fire a change the planner is listening to.
+  */
+
+  var TOGGLE_IDS = {
+    grip: 'grip',
+    isPVP: 'mode-pvp',
+    isLowHP: 'low-hp',
+    isFullHP: 'full-hp',
+    useSkillLH1: 'lh1-use-skill',
+    useSkillRH1: 'rh1-use-skill',
+    isDragonHead: 'dragon-head',
+    isDragonTorso: 'dragon-torso'
+  }
+
+  function setSilently(selector, value) {
+    if (value === undefined || value === null) return
+    var $el = $(selector)
+    if (!$el.length) return
+    $el.val(value).trigger('change.select2')
+  }
+
+  function applyStateToDom(state) {
+    var build = state.build
+    applying = true
+
+    for (var key in SCALAR_SELECT) {
+      if (SCALAR_SELECT.hasOwnProperty(key)) setSilently(SCALAR_SELECT[key], build[key])
+    }
+
+    $('.planner .attributes input, #hollowing, #humanity').each(function () {
+      if (!build.hasOwnProperty(this.id)) return
+      $(this).val(build[this.id]).data('previous-value', build[this.id])
+    })
+
+    var lists = adapter.lists || []
+    for (var l = 0; l < lists.length; l++) {
+      var list = resolveListIds(lists[l])
+      var values = splitField(build, list.key)
+      var buffs = list.buffs ? splitField(build, list.buffs) : null
+      var stride = 1 + list.extras.length
+
+      for (var i = 0; i < list.ids.length; i++) {
+        var id = list.ids[i]
+        var $select = $('#' + id)
+        var value = values[i * stride]
+        if (value === undefined) continue
+
+        if (list.extras.length) {
+          /* Real change: the planner rebuilds this slot's extra dropdowns from the new item. */
+          $select.val(value).trigger('change.select2').trigger('change')
+          for (var e = list.extras.length - 1; e >= 0; e--) {
+            var wanted = values[i * stride + 1 + e]
+            var $extra = $('#' + id + list.extras[e])
+            if (wanted === undefined || !$extra.length) continue
+            if (!$extra.find('option').filter(function () { return this.value === wanted }).length) continue
+            $extra.val(wanted).trigger('change.select2').trigger('change')
+          }
+        } else {
+          setSilently('#' + id, value)
+        }
+
+        if (buffs) {
+          var on = Number(buffs[i]) === 1
+          var $buff = $select.parent().parent().children('.buff')
+          if ($buff.length) {
+            /* Turning a buff on has to be a real change - that is what tells the planner which
+               buff is the active one when several could apply. */
+            if (on) $buff.prop('checked', true).trigger('change')
+            else $buff.prop('checked', false)
+          }
+        }
+      }
+    }
+
+    for (var flag in TOGGLE_IDS) {
+      if (!TOGGLE_IDS.hasOwnProperty(flag) || !build.hasOwnProperty(flag)) continue
+      var $toggle = $('#' + TOGGLE_IDS[flag])
+      if ($toggle.length) $toggle.prop('checked', Number(build[flag]) === 1).trigger('change')
+    }
+
+    if (build.weaponsParamVisible) {
+      var panels = String(build.weaponsParamVisible).split(';')
+      $(adapter.slots[1].selector).each(function (index) {
+        var name = panels[index]
+        var wrapper = $(this).parent().parent()
+        wrapper.children('.equipment-params').hide().attr('data-visible', false)
+        if (name) wrapper.children('.' + name).attr('data-visible', true).show()
+      })
+    }
+
+    /* Parked slots: the build already has them empty, so this only restores the memory of what
+       was in them and the state of their checkboxes. */
+    parked = {}
+    var map = state.parked || {}
+    eachSlot(function ($select, id) {
+      var values = map[id]
+      if (values) parked[id] = values
+      $('#sp-slot-' + id).prop('checked', !values)
+      markParked(id)
+    })
+
+    applying = false
+
+    /* Provoke the recalculation. */
+    $('.planner .attributes input').first().trigger('change')
+  }
+
+  var timeline = []
+  var timelineAt = -1
+  var TIMELINE_LIMIT = 50
+  var restoring = false
+
+  function pushHistory(state) {
+    if (restoring) return
+    var json = JSON.stringify(state)
+    if (timelineAt >= 0 && JSON.stringify(timeline[timelineAt]) === json) return
+    timeline = timeline.slice(0, timelineAt + 1)
+    timeline.push(JSON.parse(json))
+    if (timeline.length > TIMELINE_LIMIT) timeline.shift()
+    timelineAt = timeline.length - 1
+  }
+
+  function stepHistory(delta) {
+    var target = timelineAt + delta
+    if (target < 0 || target >= timeline.length) {
+      toast(delta < 0 ? 'Nothing to undo' : 'Nothing to redo')
+      return
+    }
+    timelineAt = target
+    restoring = true
+    try {
+      applyStateToDom(timeline[timelineAt])
+      window.clearTimeout(timer)
+      persistNow()
+    } finally {
+      restoring = false
+    }
+    toast(delta < 0 ? 'Undo' : 'Redo')
   }
 
   /* ------------------------------------------------------------------- status */
@@ -1842,9 +2003,20 @@
     $('.planner').on('change', 'select, input', schedulePersist)
 
     $(document).on('keydown', function (event) {
-      if ((event.ctrlKey || event.metaKey) && event.which === 83) {
+      if (!(event.ctrlKey || event.metaKey)) return
+
+      /* Leave the drawer's own text fields to the browser's undo. */
+      if ($(event.target).closest('#builds-drawer').length) return
+
+      if (event.which === 83) {
         event.preventDefault()
         saveCurrent(false)
+      } else if (event.which === 90 && !event.shiftKey) {
+        event.preventDefault()
+        stepHistory(-1)
+      } else if ((event.which === 90 && event.shiftKey) || event.which === 89) {
+        event.preventDefault()
+        stepHistory(1)
       }
     })
 
