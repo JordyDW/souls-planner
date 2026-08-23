@@ -1,0 +1,148 @@
+/*
+ * souls-persist - styling for the injected toolbar buttons, builds dialog and toast.
+ *
+ * Self-contained on purpose: the three planners ship three different minified stylesheets, so
+ * nothing here may depend on any of them. Colours match the planner's own dialogs, which are
+ * light panels (#f8f8ff, #ddd rules) even on the dark planner.
+ *
+ * The toolbar buttons deliberately carry no colour rules - they are .material-icons buttons
+ * inside .character-class .options, so `.planner.dark .options button` already styles them.
+ */
+
+/* The planner hides its own dialogs by id, so ours has to hide itself. */
+#builds-dialog {
+  display: none;
+  background: #f8f8ff;
+  color: #333;
+  padding: 16px 16px 14px;
+  width: 560px;
+  max-width: calc(100vw - 24px);
+}
+
+#builds-dialog h2 {
+  border-bottom: 1px solid #ddd;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+}
+
+#builds-dialog .sp-dialog__body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+#builds-dialog footer {
+  border-top: 1px solid #ddd;
+  margin-top: 12px;
+  padding-top: 10px;
+  text-align: right;
+}
+
+#builds-dialog footer button {
+  background: #fff;
+  border: 1px solid #ccc;
+  color: #333;
+  cursor: pointer;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 10px;
+}
+
+#builds-dialog footer button:hover {
+  background: #eee;
+}
+
+#builds-dialog footer button.default {
+  border-color: #069;
+  color: #069;
+  font-weight: 700;
+}
+
+#builds-dialog .sp-file {
+  display: none;
+}
+
+.sp-builds {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.sp-builds td {
+  border-bottom: 1px solid #ddd;
+  padding: 5px 4px;
+  vertical-align: middle;
+}
+
+.sp-builds__row--current .sp-builds__name {
+  font-weight: 700;
+}
+
+.sp-builds__name {
+  word-break: break-word;
+}
+
+.sp-builds__level,
+.sp-builds__date {
+  color: #777;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.sp-builds__actions {
+  text-align: right;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.sp-action {
+  background: 0 0;
+  border: 1px solid transparent;
+  color: #069;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: 6px;
+  padding: 2px 3px;
+}
+
+.sp-action:hover {
+  text-decoration: underline;
+}
+
+.sp-action[data-action='delete'] {
+  color: #a33;
+}
+
+.sp-empty {
+  color: #777;
+  margin: 4px 0;
+}
+
+/* Confirmation for actions with no visible result of their own, e.g. copying a link. */
+.sp-toast {
+  background: rgba(20, 20, 20, 0.94);
+  border-radius: 3px;
+  bottom: 24px;
+  color: #f5f5f5;
+  font-size: 13px;
+  left: 50%;
+  opacity: 0;
+  padding: 8px 16px;
+  pointer-events: none;
+  position: fixed;
+  transform: translateX(-50%);
+  transition: opacity 0.18s ease-in-out;
+  z-index: 300;
+}
+
+.sp-toast--visible {
+  opacity: 1;
+}
+
+/* Off-screen field for the execCommand('copy') fallback used outside secure contexts. */
+.sp-clipboard {
+  height: 1px;
+  left: -9999px;
+  opacity: 0;
+  position: fixed;
+  top: 0;
+  width: 1px;
+}
