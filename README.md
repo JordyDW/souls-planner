@@ -43,6 +43,18 @@ Beyond that it just works in the background:
 
 "Reset" clears the current build and starts fresh; your saved builds are untouched.
 
+### Trying a build without a piece
+
+Every armour, weapon and ring slot has a checkbox. Untick it and the slot empties — the weight
+and stats update as if nothing were equipped — but what was in it is remembered, so ticking the
+box puts it straight back. Useful for "what do I weigh without leg armour" without having to go
+and find the leggings again.
+
+Weapons come back with their reinforcement and infusion intact (DS: upgrade path; DS 2:
+infusion), and armour in DS keeps its reinforcement. Parked slots travel in saved builds and in
+share links, so a link can show a build with a slot deliberately empty. Picking something new for
+a parked slot re-enables it.
+
 ### Where the data lives
 
 Under `localStorage`, per game (`darksouls`, `darksouls2`, `darksouls3`):
@@ -70,4 +82,6 @@ bundled planner applied it on load. Mirroring the site removed the account syste
 that global, but the code that consumes it is still there in all three planner bundles. So
 `public/scripts/persist/souls-persist.js` does not touch any of the minified code — it defines
 that same global before the page is ready, and reads the build back out using a transcription of
-the serializer the bundles still carry. The stored format is therefore the planner's own.
+the serializer the bundles still carry. The stored format is therefore the planner's own -
+parked slots are the one thing the planner has no concept of, so they ride alongside the build
+rather than inside it.

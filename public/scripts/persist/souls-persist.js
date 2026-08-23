@@ -90,6 +90,11 @@
         'attunement', 'endurance', 'strength', 'dexterity', 'resistance', 'intelligence',
         'faith', 'humanity'
       ],
+      slots: [
+        { selector: '.planner .armor .wrapper-protector select', suffixes: ['-reinforce'] },
+        { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-upgrade'] },
+        { selector: '.planner .rings select', suffixes: [] }
+      ],
       serialize: function () {
         var spells = valuesWithBuffs('.planner .spells select')
         var items = valuesWithBuffs('.planner .items select')
@@ -133,6 +138,11 @@
         'items', 'vigor', 'endurance', 'vitality', 'attunement', 'strength', 'dexterity',
         'adaptability', 'intelligence', 'faith'
       ],
+      slots: [
+        { selector: '.armor select', suffixes: [] },
+        { selector: '.weapons .wrapper-weapon select', suffixes: ['-infusion'] },
+        { selector: '.rings select', suffixes: [] }
+      ],
       serialize: function () {
         return {
           class_: $('#class').val(),
@@ -165,6 +175,11 @@
         'spellBuffs', 'arrows', 'bolts', 'items', 'itemBuffs', 'vigor', 'attunement',
         'endurance', 'vitality', 'strength', 'dexterity', 'intelligence', 'faith', 'luck',
         'hollowing'
+      ],
+      slots: [
+        { selector: '.planner .armor select', suffixes: [] },
+        { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-infusion'] },
+        { selector: '.planner .rings select', suffixes: [] }
       ],
       serialize: function () {
         var spells = valuesWithBuffs('.planner .spells select')
@@ -223,6 +238,142 @@
     currentId: 'soulsPlanner.currentId.' + game
   }
 
+  /* --------------------------------------------------------- parked slots */
+
+  /* A slot can be "parked": emptied so it stops counting towards weight and stats, while this
+     module holds on to what was in it so the checkbox puts it straight back. Handy for "what do
+     I weigh without leg armour" without having to hunt the piece down again.
+
+     The planner has no concept of this, so parked values ride alongside the build rather than
+     inside it - `b` stays byte-for-byte the format the planner's own applier expects. */
+
+  var TOGGLE_TITLE = 'Uncheck to take this slot out of the calculation without losing it'
+  var parked = {}
+  var applying = false
+
+  /* What this select looks like with nothing equipped. The planner already tells us: it gives
+     select2 a placeholder whose id is exactly that value - "-1" for armour and rings, the Bare
+     Fists id for weapons. Reading the options is the fallback for the mobile-native-select path,
+     where select2 is never initialised. */
+  function emptyValue($select) {
+    var data = $select.data('select2')
+    var placeholder = data && data.options && data.options.options.placeholder
+    if (placeholder && placeholder.id !== undefined) return String(placeholder.id)
+    if ($select.find('option[value="-1"]').length) return '-1'
+    var first = $select.find('option').first()
+    return first.length ? first.val() : '-1'
+  }
+
+  function optionText($select, value) {
+    return $select.find('option').filter(function () { return this.value === value }).text()
+  }
+
+  function eachSlot(fn) {
+    for (var g = 0; g < adapter.slots.length; g++) {
+      var group = adapter.slots[g]
+      /* jshint loopfunc:true */
+      $(group.selector).each(
+        (function (suffixes) {
+          return function () { fn($(this), $(this).attr('id'), suffixes) }
+        })(group.suffixes)
+      )
+    }
+  }
+
+  function currentParked() {
+    var out = {}
+    for (var id in parked) {
+      if (parked.hasOwnProperty(id)) out[id] = parked[id]
+    }
+    return out
+  }
+
+  /* The checkbox and the label that draws it - see buildToggles. */
+  function toggleUi(id) {
+    return $('#sp-slot-' + id).add('label[for="sp-slot-' + id + '"]')
+  }
+
+  function markParked(id) {
+    var $select = $('#' + id)
+    var values = parked[id]
+    $select.closest('.sp-slot').toggleClass('sp-slot--parked', !!values)
+    if (values) {
+      toggleUi(id).attr('title', 'Parked: ' + (optionText($select, values[0]) || 'this slot') + ' - re-check to put it back')
+    } else {
+      toggleUi(id).attr('title', TOGGLE_TITLE)
+    }
+  }
+
+  function parkSlot(id, suffixes) {
+    var $select = $('#' + id)
+    var values = [$select.val()]
+    for (var i = 0; i < suffixes.length; i++) values.push($('#' + id + suffixes[i]).val())
+    parked[id] = values
+
+    applying = true
+    $select.val(emptyValue($select)).trigger('change.select2').trigger('change')
+    applying = false
+    markParked(id)
+  }
+
+  function unparkSlot(id, suffixes) {
+    var values = parked[id]
+    delete parked[id]
+    if (!values) return markParked(id)
+
+    applying = true
+    var $select = $('#' + id)
+    $select.val(values[0]).trigger('change.select2').trigger('change')
+
+    /* Putting the weapon back rebuilds its reinforce and infusion lists from scratch, so those
+       are restored afterwards - and in reverse order, which is the order the planner's own
+       applier uses (infusion, or DS1's upgrade, before reinforce). */
+    for (var i = suffixes.length - 1; i >= 0; i--) {
+      var $extra = $('#' + id + suffixes[i])
+      var wanted = values[i + 1]
+      if (wanted === undefined || !$extra.length) continue
+      if (!$extra.find('option').filter(function () { return this.value === wanted }).length) continue
+      $extra.val(wanted).trigger('change.select2').trigger('change')
+    }
+    applying = false
+    markParked(id)
+  }
+
+  function buildToggles() {
+    eachSlot(function ($select, id, suffixes) {
+      var cell = $select.closest('.wrapper-protector, .wrapper-weapon')
+      var container = cell.length ? cell : $select.parent()
+      var toggleId = 'sp-slot-' + id
+      container.addClass('sp-slot')
+
+      $('<input type="checkbox" class="sp-slot-toggle" checked tabindex="-1" />')
+        .attr('id', toggleId)
+        .prependTo(container)
+        .on('change', function () {
+          if ($(this).is(':checked')) unparkSlot(id, suffixes)
+          else parkSlot(id, suffixes)
+        })
+
+      /* The planner parks real checkboxes off-screen and draws them with a label::before glyph,
+         so the box you actually see and click is this label, not the input. */
+      $('<label class="sp-slot-label"></label>')
+        .attr('for', toggleId)
+        .attr('title', TOGGLE_TITLE)
+        .insertAfter('#' + toggleId)
+    })
+  }
+
+  /* The restored build already has these slots empty, so this only has to remember what was in
+     them and untick the boxes. */
+  function applyParked(map) {
+    for (var id in map) {
+      if (!map.hasOwnProperty(id) || !$('#sp-slot-' + id).length) continue
+      parked[id] = map[id]
+      $('#sp-slot-' + id).prop('checked', false)
+      markParked(id)
+    }
+  }
+
   /* -------------------------------------------------------------- storage */
 
   /* Every access is guarded: Chrome throws on localStorage over file://, and the planner has to
@@ -254,8 +405,31 @@
 
   /* ---------------------------------------------------------------- codec */
 
-  function wrap(build) {
-    return { v: FORMAT, g: game, b: build }
+  function wrap(build, parkedMap) {
+    var payload = { v: FORMAT, g: game, b: build }
+    var d = parkedMap || {}
+    for (var id in d) {
+      if (d.hasOwnProperty(id)) { payload.d = d; break }
+    }
+    return payload
+  }
+
+  /* Optional and forgiving: links made before slots could be parked simply have no `d`, and a
+     malformed one costs you the parked slots rather than the whole build. */
+  function parkedOf(payload) {
+    var d = payload && payload.d
+    if (!d || typeof d !== 'object') return {}
+    var out = {}
+    for (var id in d) {
+      if (d.hasOwnProperty(id) && Object.prototype.toString.call(d[id]) === '[object Array]') {
+        out[id] = d[id]
+      }
+    }
+    return out
+  }
+
+  function unwrapState(payload) {
+    return { build: unwrap(payload), parked: parkedOf(payload) }
   }
 
   /* Validate rather than patch. The planner's applier does not null-guard - a missing key means a
@@ -273,8 +447,8 @@
     return build
   }
 
-  function encode(build) {
-    return LZString.compressToEncodedURIComponent(JSON.stringify(wrap(build)))
+  function encode(state) {
+    return LZString.compressToEncodedURIComponent(JSON.stringify(wrap(state.build, state.parked)))
   }
 
   function decode(token) {
@@ -293,20 +467,21 @@
     } catch (e) {
       throw new Error('link does not decode to valid JSON')
     }
-    return unwrap(payload)
+    return unwrapState(payload)
   }
 
   function baseUrl() {
     return window.location.href.split('#')[0]
   }
 
-  function shareUrl(build) {
-    return baseUrl() + HASH_PREFIX + encode(build)
+  function shareUrl(state) {
+    return baseUrl() + HASH_PREFIX + encode(state)
   }
 
   /* -------------------------------------------------- restore (before ready) */
 
   var restoredFrom = null
+  var restoredParked = {}
 
   function warn(message) {
     if (window.console && console.warn) console.warn('[souls-persist] ' + message)
@@ -330,16 +505,20 @@
     if (!restored) {
       var saved = store.get(KEY.autosave, null)
       if (saved) {
-        restored = unwrap(saved)
+        restored = unwrapState(saved)
         restoredFrom = 'autosave'
       }
     }
 
-    if (restored) window.savedBuild = restored
+    if (restored) {
+      window.savedBuild = restored.build
+      restoredParked = restored.parked
+    }
   } catch (error) {
     /* Deliberately non-fatal: anything unusable here just gives you a clean planner. */
     window.savedBuild = undefined
     restoredFrom = null
+    restoredParked = {}
     warn('ignoring saved build: ' + error.message)
   }
 
@@ -349,17 +528,21 @@
     return adapter.serialize()
   }
 
+  function currentState() {
+    return { build: currentBuild(), parked: currentParked() }
+  }
+
   var writeHash = true
   var suspended = false
   var timer = null
 
   function persistNow() {
     if (suspended) return
-    var build = currentBuild()
-    store.set(KEY.autosave, wrap(build))
+    var state = currentState()
+    store.set(KEY.autosave, wrap(state.build, state.parked))
     if (!writeHash) return
     try {
-      window.history.replaceState(null, '', HASH_PREFIX + encode(build))
+      window.history.replaceState(null, '', HASH_PREFIX + encode(state))
     } catch (e) {
       /* file:// forbids replaceState. Stop retrying; the share button still builds URLs. */
       writeHash = false
@@ -397,14 +580,19 @@
     return String(Date.now()) + String(Math.floor(Math.random() * 1000))
   }
 
-  function entryFor(name, build) {
+  function entryFor(name, state) {
     return {
       id: newId(),
       name: name,
-      level: build.level,
+      level: state.build.level,
       updatedAt: new Date().toISOString(),
-      build: build
+      build: state.build,
+      parked: state.parked
     }
+  }
+
+  function stateOf(entry) {
+    return { build: entry.build, parked: parkedOf({ d: entry.parked }) }
   }
 
   function findIndex(builds, id) {
@@ -416,21 +604,22 @@
 
   function saveCurrent(forceNew) {
     var builds = loadBuilds()
-    var build = currentBuild()
+    var state = currentState()
     var currentId = store.get(KEY.currentId, null)
     var index = forceNew ? -1 : findIndex(builds, currentId)
 
     if (index === -1) {
-      var name = window.prompt('Name this build:', suggestedName(build))
+      var name = window.prompt('Name this build:', suggestedName(state.build))
       if (name === null) return null
       name = name.replace(/^\s+|\s+$/g, '')
       if (!name) return null
-      var entry = entryFor(name, build)
+      var entry = entryFor(name, state)
       builds.unshift(entry)
       store.set(KEY.currentId, entry.id)
     } else {
-      builds[index].build = build
-      builds[index].level = build.level
+      builds[index].build = state.build
+      builds[index].parked = state.parked
+      builds[index].level = state.build.level
       builds[index].updatedAt = new Date().toISOString()
     }
 
@@ -451,12 +640,12 @@
     return (className ? className + ' ' : '') + 'SL' + build.level
   }
 
-  function applyBuild(build) {
+  function applyBuild(state) {
     /* The planner only applies savedBuild during its ready handler, so re-entering a build means
        reloading the page with it in the hash - which is also exactly what a shared link does. */
     suspended = true
     window.clearTimeout(timer)
-    window.location.href = shareUrl(build)
+    window.location.href = shareUrl(state)
     window.location.reload()
   }
 
@@ -589,9 +778,9 @@
 
       if (action === 'load') {
         store.set(KEY.currentId, id)
-        applyBuild(builds[index].build)
+        applyBuild(stateOf(builds[index]))
       } else if (action === 'share') {
-        copyToClipboard(shareUrl(builds[index].build))
+        copyToClipboard(shareUrl(stateOf(builds[index])))
       } else if (action === 'rename') {
         var name = window.prompt('Rename build:', builds[index].name)
         if (name === null) return
@@ -653,7 +842,7 @@
 
     $('<button class="material-icons" id="sp-button-share" title="Copy share link">link</button>')
       .on('click', function () {
-        copyToClipboard(shareUrl(currentBuild()))
+        copyToClipboard(shareUrl(currentState()))
       })
       .appendTo(options)
   }
@@ -690,6 +879,16 @@
 
     buildToolbar()
     rebindStockButtons()
+    buildToggles()
+    applyParked(restoredParked)
+
+    /* Choosing something for a parked slot obviously means you want it back. */
+    $('.planner').on('change', 'select', function () {
+      if (applying || !parked.hasOwnProperty(this.id)) return
+      delete parked[this.id]
+      $('#sp-slot-' + this.id).prop('checked', true)
+      markParked(this.id)
+    })
 
     /* One delegated listener covers every control in every game. Delegation matters: the event
        reaches .planner only after the planner's own handler has run on the element itself, so by
@@ -719,8 +918,10 @@
   window.SoulsPersist = {
     game: game,
     current: currentBuild,
+    state: currentState,
+    parked: currentParked,
     shareUrl: function () {
-      return shareUrl(currentBuild())
+      return shareUrl(currentState())
     },
     builds: loadBuilds,
     encode: encode,

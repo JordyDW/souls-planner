@@ -146,3 +146,39 @@
   top: 0;
   width: 1px;
 }
+
+/* ------------------------------------------------ per-slot enable/disable toggles */
+
+/* Slot rows are laid out with fixed-width labels and calc() widths that differ per game and per
+   breakpoint. Rather than adjust any of those, the cell holding the select becomes a flex row
+   and the select takes whatever is left after the checkbox. */
+.planner .sp-slot {
+  align-items: center;
+  display: flex;
+}
+
+/* The input itself is pushed off-screen by the planner's own stylesheet; the label is the box
+   you see, and its ::before already carries the 4px gap. */
+.planner .sp-slot > .sp-slot-label {
+  flex: 0 0 auto;
+}
+
+/* select2 writes an inline pixel width when it initialises, which is before the checkbox is
+   inserted - so the override has to outrank it. */
+.planner .sp-slot > .select2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto !important;
+}
+
+.planner .sp-slot > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A parked slot should read as deliberately empty, not merely unequipped. */
+.planner .sp-slot--parked > .select2 .select2-selection__rendered,
+.planner .sp-slot--parked > select {
+  font-style: italic;
+  opacity: 0.5;
+}
