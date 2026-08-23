@@ -1493,6 +1493,7 @@
   /* Exposed for debugging from the console. */
   window.SoulsPersist = {
     game: game,
+    toast: toast,
     current: currentBuild,
     state: currentState,
     parked: currentParked,

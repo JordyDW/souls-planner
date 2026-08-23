@@ -412,3 +412,92 @@
 .planner .sp-status:hover {
   text-decoration: underline;
 }
+
+/* ------------------------------------------------------------------------- offline */
+
+/* Shown when a game page loads without its data bundle, which otherwise just looks broken. */
+.sp-offline-banner {
+  background: #4a3a12;
+  border-bottom: 1px solid #6b5520;
+  color: #f0dfae;
+  font-size: 13px;
+  padding: 8px 14px;
+  text-align: center;
+}
+
+.sp-offline {
+  color: #ccc;
+  font-size: 13px;
+  margin: 24px auto 40px;
+  max-width: 640px;
+  padding: 0 16px;
+}
+
+.sp-offline h2 {
+  border-bottom: 1px solid #333;
+  font-size: 15px;
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+}
+
+.sp-offline p {
+  color: #888;
+  margin: 0 0 10px;
+}
+
+.sp-offline__row {
+  align-items: center;
+  border-bottom: 1px solid #262626;
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.sp-offline__name {
+  flex: 1 1 auto;
+}
+
+.sp-offline__state {
+  color: #888;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sp-offline__state--ready {
+  color: #6a9a6a;
+}
+
+.sp-offline button {
+  background: 0 0;
+  border: 1px solid #444;
+  color: #ccc;
+  cursor: pointer;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.sp-offline button:hover:not(:disabled) {
+  border-color: #777;
+  color: #fff;
+}
+
+.sp-offline button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.sp-offline-banner button,
+.sp-offline-banner a {
+  background: 0 0;
+  border: 0;
+  color: #f0dfae;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.sp-offline-banner button:hover,
+.sp-offline-banner a:hover {
+  color: #fff;
+}

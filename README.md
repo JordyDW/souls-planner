@@ -93,11 +93,35 @@ Under `localStorage`, per game (`darksouls`, `darksouls2`, `darksouls3`):
 
 Use Export in the builds dialog for a backup you can keep.
 
+## Offline, and installing it
+
+The site registers a service worker, so after the first visit it loads from disk and keeps working
+with no connection at all — which is what this mirror was always meant to be.
+
+Two different rules, because the assets are not alike:
+
+* **Pages, fonts, vendors and the persistence layer are always kept.** A few hundred KB, cached on
+  the first visit.
+* **Game data is only kept once you ask for it**, by opening that game or by pressing *Save for
+  offline* on the home page. Dark Souls 3 alone is 11MB (Dark Souls 3.2MB, Dark Souls 2 0.5MB), so
+  downloading all of it because you glanced at the home page would be rude.
+
+The home page lists all three with their size and whether they are saved. Open a game page whose
+data was never saved and you get a banner saying so, rather than a planner with empty dropdowns.
+
+It also installs as an app — the manifest and icons are there, so Chrome will offer to install it
+and it opens in its own window.
+
+After a deploy the new version installs in the background and applies on the next load; you get a
+"reload to update" note rather than having bundles swapped underneath a planner you are using. To
+force everything to be re-fetched, bump `CACHE_VERSION` in `sw.js`.
+
 ### A note on opening the files directly
 
 Chrome refuses `localStorage` to pages opened as `file://`, so saved builds will not stick that
-way — share links still work, and Firefox is unaffected. To get persistence from a local copy,
-serve the folder instead:
+way — share links still work, and Firefox is unaffected. Service workers are not available over
+`file://` at all, so the offline caching above needs the folder served rather than opened. Both
+work if you serve it:
 
 ```
 python3 -m http.server 8000     # then open http://localhost:8000
