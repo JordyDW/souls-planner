@@ -62,6 +62,7 @@ var SHELL = [
   './public/scripts/persist/register-sw.js',
   './public/scripts/persist/offline-home.js',
   './public/scripts/persist/nav.js',
+  './public/scripts/persist/install.js',
   './public/styles/persist/souls-persist.css',
 
   './public/icons/icon-192.png',

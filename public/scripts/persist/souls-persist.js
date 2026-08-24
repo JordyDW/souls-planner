@@ -2160,6 +2160,9 @@
     var options = $('.planner .character-class .options')
     if (!options.length) return
 
+    /* Separates the planner's own actions from the ones this adds. */
+    $('<span class="sp-toolbar__sep"></span>').appendTo(options)
+
     $('<button class="material-icons" id="sp-button-save" title="Save build (Ctrl+S)">save</button>')
       .on('click', function () {
         saveCurrent(false)

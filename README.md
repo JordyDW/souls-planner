@@ -175,8 +175,10 @@ Two different rules, because the assets are not alike:
 The home page lists all three with their size and whether they are saved. Open a game page whose
 data was never saved and you get a banner saying so, rather than a planner with empty dropdowns.
 
-It also installs as an app — the manifest and icons are there, so Chrome will offer to install it
-and it opens in its own window.
+It also installs as an app. There is an **Install app** button — in the game tool bar, and on the
+home page beside the offline list — which appears only when your browser says installation is
+possible and disappears once it is installed. Installed, it opens in its own window with no
+browser chrome.
 
 After a deploy the new version installs in the background and applies on the next load; you get a
 "reload to update" note rather than having bundles swapped underneath a planner you are using. To
