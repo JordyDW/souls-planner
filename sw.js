@@ -11,10 +11,20 @@
  *     Precaching all of it would mean a 14MB download to read the home page. They are cached the
  *     first time you actually open that game instead, so you never pay for a game you don't play.
  *
- * Bump CACHE_VERSION to force a refresh; activate() then drops every older cache.
+ * The shell is served stale-while-revalidate rather than cache-first. Cache-first meant a changed
+ * script kept loading from cache until someone remembered to bump CACHE_VERSION - and since this
+ * file is what the browser checks for an update, editing anything *else* left every device that
+ * had ever visited pinned to an old build indefinitely. That is exactly what happened. Now a stale
+ * asset is still served instantly, but it is refetched in the background and the next load has it.
+ *
+ * Game bundles stay cache-first: they are up to 11MB and never change, so revalidating them on
+ * every visit would be a large download to discover nothing happened.
+ *
+ * Bump CACHE_VERSION to force a clean rebuild for everyone; activate() then drops every older
+ * cache.
  */
 
-var CACHE_VERSION = 'v1'
+var CACHE_VERSION = 'v2'
 var SHELL_CACHE = 'souls-planner-shell-' + CACHE_VERSION
 var RUNTIME_CACHE = 'souls-planner-runtime-' + CACHE_VERSION
 
@@ -75,10 +85,17 @@ var LAZY = /\/public\/(scripts|styles)\/release\/DarkSouls[23]?\//
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(function (cache) {
-      /* One bad entry must not fail the whole install, so they are added individually. */
+      /* One bad entry must not fail the whole install, so they are added individually - and each
+         is fetched past the HTTP cache. cache.add() honours it, which means a fresh install can
+         precache the very bytes the deploy was meant to replace, and then serve them for as long
+         as the cache lives. */
       return Promise.all(
         SHELL.map(function (url) {
-          return cache.add(url)['catch'](function () {})
+          return fetch(new Request(url, { cache: 'reload', credentials: 'same-origin' }))
+            .then(function (response) {
+              if (response && response.status === 200) return cache.put(url, response)
+            })
+            ['catch'](function () {})
         })
       )
     })
@@ -103,6 +120,32 @@ self.addEventListener('activate', function (event) {
       })
   )
 })
+
+/* Serve what we have, then quietly replace it. event.waitUntil keeps the worker alive for the
+   background fetch, which would otherwise be killed the moment the response is returned. */
+function staleWhileRevalidate(event, request, cacheName, matchOptions, cacheKey) {
+  return caches.match(request, matchOptions).then(function (hit) {
+    /* Explicitly past the HTTP cache. Without this the revalidation is itself answered from the
+       browser cache, so the worker cheerfully re-stores the same stale bytes it already had and
+       nothing ever updates - which is the failure this whole strategy exists to prevent. */
+    var network = fetch(new Request(request.url, { cache: 'reload', credentials: 'same-origin' }))
+      .then(function (response) {
+        if (!response || response.status !== 200 || response.type !== 'basic') return response
+        var copy = response.clone()
+        caches.open(cacheName).then(function (cache) {
+          cache.put(cacheKey || request, copy)
+        })
+        return response
+      })
+      ['catch'](function () {
+        return hit
+      })
+
+    if (!hit) return network
+    event.waitUntil(network)
+    return hit
+  })
+}
 
 function cacheFirst(request, cacheName, matchOptions) {
   return caches.match(request, matchOptions).then(function (hit) {
@@ -222,6 +265,10 @@ self.addEventListener('message', function (event) {
   var port = event.ports && event.ports[0]
   if (data.type === 'sp-warm') event.waitUntil(warmGame(data.game, port))
   else if (data.type === 'sp-offline-status') event.waitUntil(offlineStatus(port))
+  /* A worker that has installed but is waiting will not take over on a reload - only when every
+     tab controlled by the old one has closed, which on a phone is approximately never. The page
+     asks for the handover at load time, when there is nothing running to disturb. */
+  else if (data.type === 'sp-skip-waiting') self.skipWaiting()
 })
 
 self.addEventListener('fetch', function (event) {
@@ -240,15 +287,21 @@ self.addEventListener('fetch', function (event) {
      the cache key by default - so without ignoreSearch those frames would miss the cache and fail
      outright when offline, which is exactly when you would notice. */
   if (request.mode === 'navigate') {
+    /* Stored under the bare path so the compare frames, which add ?sp-compare=1, do not each
+       leave their own copy behind. */
     event.respondWith(
-      caches.match(request, { ignoreSearch: true }).then(function (hit) {
-        return hit || fetch(request)['catch'](function () {
-          return caches.match('./index.html', { ignoreSearch: true })
+      staleWhileRevalidate(event, request, SHELL_CACHE, { ignoreSearch: true }, url.origin + url.pathname)
+        .then(function (response) {
+          return response || caches.match('./index.html', { ignoreSearch: true })
         })
-      })
     )
     return
   }
 
-  event.respondWith(cacheFirst(request, LAZY.test(url.pathname) ? RUNTIME_CACHE : SHELL_CACHE))
+  if (LAZY.test(url.pathname)) {
+    event.respondWith(cacheFirst(request, RUNTIME_CACHE))
+    return
+  }
+
+  event.respondWith(staleWhileRevalidate(event, request, SHELL_CACHE))
 })

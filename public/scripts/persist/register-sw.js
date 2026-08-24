@@ -105,17 +105,26 @@
   window.addEventListener('load', function () {
     navigator.serviceWorker.register(root + 'sw.js', { scope: root }).then(
       function (registration) {
+        /* A worker waiting from a previous visit is handed over now, at load, rather than left
+           waiting for every tab to close - which was the bug: "reload to update" does not
+           activate a waiting worker, so a phone could sit on a months-old build forever. Doing it
+           here rather than mid-session means nothing is running that could notice. */
+        if (registration.waiting) registration.waiting.postMessage({ type: 'sp-skip-waiting' })
+
         registration.addEventListener('updatefound', function () {
           var incoming = registration.installing
           if (!incoming) return
           incoming.addEventListener('statechange', function () {
-            /* An existing controller means this is an update rather than the first install.
-               Deliberately not skipWaiting: swapping bundles under a planner that is already
-               running is a worse experience than telling you to reload when it suits. */
-            if (incoming.state === 'installed' && navigator.serviceWorker.controller) {
-              if (window.SoulsPersist && window.SoulsPersist.toast) {
-                window.SoulsPersist.toast('New version available - reload to update')
-              }
+            if (incoming.state !== 'installed') return
+
+            /* No controller means this is the first install, and it is already in charge. */
+            if (!navigator.serviceWorker.controller) return
+
+            /* Still not swapping bundles under a planner that is already running: it is told to
+               step aside for the next load, and you are told it is there. */
+            if (registration.waiting) registration.waiting.postMessage({ type: 'sp-skip-waiting' })
+            if (window.SoulsPersist && window.SoulsPersist.toast) {
+              window.SoulsPersist.toast('New version ready - reload to use it')
             }
           })
         })

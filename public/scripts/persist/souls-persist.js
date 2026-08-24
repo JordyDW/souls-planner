@@ -1590,17 +1590,42 @@
     $select.select2(options)
   }
 
-  function decorateDropdowns() {
-    /* No select2 means the mobile native-select path, where there is nothing to template. */
-    if (!$.isSelect2Supported || !$.isSelect2Supported()) return
-    if (!adapter.info) return
-
-    var groups = [
+  function browseGroups() {
+    return [
       { kind: 'armor', selector: adapter.lists[0].selector, extras: adapter.lists[0].extras },
       { kind: 'weapon', selector: adapter.lists[1].selector, extras: adapter.lists[1].extras },
       { kind: 'ring', selector: adapter.lists[2].selector, extras: [] },
       { kind: 'spell', selector: '.planner .spells select, .spells select', extras: [] }
     ]
+  }
+
+  /* Registering a slot needs the option list and nothing else, so this runs whatever the page is.
+     It used to live inside decorateDropdowns, which bails on the mobile native-select path - with
+     the result that the item browser was empty on every phone, and on Android in particular, where
+     $.isSelect2Supported is false by definition. That is also the platform where it is most
+     useful: without select2 there are no stat columns in the dropdowns and no hover preview, so
+     the browser is the only place those numbers appear at all. */
+  function registerBrowseSlots() {
+    if (!adapter.info) return
+    var groups = browseGroups()
+
+    for (var g = 0; g < groups.length; g++) {
+      if (!BROWSE_COLUMNS[groups[g].kind]) continue
+      /* jshint loopfunc:true */
+      ;(function (kind) {
+        $(groups[g].selector).each(function () {
+          registerBrowseSlot($(this).attr('id'), kind)
+        })
+      })(groups[g].kind)
+    }
+  }
+
+  function decorateDropdowns() {
+    /* No select2 means the mobile native-select path, where there is nothing to template. */
+    if (!$.isSelect2Supported || !$.isSelect2Supported()) return
+    if (!adapter.info) return
+
+    var groups = browseGroups()
 
     for (var g = 0; g < groups.length; g++) {
       /* jshint loopfunc:true */
@@ -1608,7 +1633,6 @@
         $(groups[g].selector).each(function () {
           retemplate($(this), kind)
           attachPreview($(this), extras)
-          if (BROWSE_COLUMNS[kind]) registerBrowseSlot($(this).attr('id'), kind)
         })
       })(groups[g].kind, groups[g].extras || [])
     }
@@ -4104,6 +4128,7 @@
     rebindStockButtons()
     buildToggles()
     applyParked(restoredParked)
+    registerBrowseSlots()
     decorateDropdowns()
 
     warmBrowseCache()
