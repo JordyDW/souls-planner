@@ -94,6 +94,16 @@ the one you see once the weapon is equipped.
 For Dark Souls 3, a piece's poise and absorption are its own contribution — pieces combine
 multiplicatively rather than adding, which is how the planner totals them.
 
+### Posting a build somewhere
+
+The image button opens a share panel with a picture of the build — name, level, class, stats,
+gear and the headline numbers — for posting where a link is the wrong answer, like Discord or
+Reddit. From there you can download it as a PNG, copy the same thing as text, or copy the link.
+
+The card is drawn straight onto a canvas rather than through a DOM-to-image library, so there is
+no extra dependency and it keeps working offline. Parked slots are labelled as such rather than
+silently omitted.
+
 ### Browsing a slot properly
 
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The

@@ -761,14 +761,15 @@
   width: 100%;
 }
 
+/* Eight actions have to fit the width of the class block without wrapping to a second row. */
 .planner.dark .character-class .options button {
   border-radius: 3px;
-  font-size: 20px;
-  height: 28px;
-  line-height: 28px;
-  margin: 0 1px 0 0;
+  font-size: 18px;
+  height: 26px;
+  line-height: 26px;
+  margin: 0;
   transition: background-color 0.12s ease-out, color 0.12s ease-out;
-  width: 30px;
+  width: 27px;
 }
 
 .planner.dark .character-class .options button:hover {
@@ -789,9 +790,9 @@
 .sp-toolbar__sep {
   background: #3a3a3a;
   display: inline-block;
-  height: 18px;
-  margin: 0 7px 0 6px;
-  vertical-align: -4px;
+  height: 16px;
+  margin: 0 5px;
+  vertical-align: -3px;
   width: 1px;
 }
 
@@ -977,4 +978,38 @@
 .sp-browse__short {
   color: #a33;
   font-weight: 700;
+}
+
+/* --------------------------------------------------------------------- share card */
+
+#share-drawer {
+  width: 470px;
+}
+
+.sp-share__hint {
+  color: #777;
+  font-size: 12px;
+  margin: 6px 0 10px;
+}
+
+.sp-share__preview canvas {
+  border: 1px solid #333;
+  display: block;
+}
+
+/* --------------------------------------------------------------------- share card */
+
+#share-drawer {
+  width: 470px;
+}
+
+.sp-share__hint {
+  color: #777;
+  font-size: 12px;
+  margin: 6px 0 10px;
+}
+
+.sp-share__preview canvas {
+  border: 1px solid #333;
+  display: block;
 }

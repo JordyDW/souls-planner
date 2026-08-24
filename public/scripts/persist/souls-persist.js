@@ -601,7 +601,17 @@
   }
 
   function baseUrl() {
-    return window.location.href.split('#')[0]
+    var link = document.createElement('a')
+    link.href = window.location.href
+    link.hash = ''
+
+    /* Never hand someone a link that turns their offline cache off - ?nosw is a debugging flag
+       and has no business travelling with a shared build. */
+    var params = link.search.replace(/^\?/, '').split('&').filter(function (part) {
+      return part && part.split('=')[0] !== 'nosw'
+    })
+    link.search = params.length ? '?' + params.join('&') : ''
+    return link.href.replace(/#$/, '')
   }
 
   function shareUrl(state) {
@@ -1892,6 +1902,84 @@
     return el
   }
 
+  function shareIsOpen() {
+    return $('#share-drawer').hasClass('sp-drawer--open')
+  }
+
+  function buildShareDrawer() {
+    var markup =
+      '<aside id="share-drawer" class="sp-drawer" aria-hidden="true">' +
+      '<header class="sp-drawer__head">' +
+      '<h2>Share build</h2>' +
+      '<button type="button" class="sp-drawer__close" title="Close (Esc)" aria-label="Close">&times;</button>' +
+      '</header>' +
+      '<div class="sp-drawer__body">' +
+      '<p class="sp-share__hint">A picture for posting where a link would not help, and the same ' +
+      'thing as text.</p>' +
+      '<div class="sp-share__preview"></div>' +
+      '</div>' +
+      '<footer class="sp-drawer__foot">' +
+      '<button class="default" id="share-drawer__png">Download image</button>' +
+      '<button id="share-drawer__markdown">Copy as text</button>' +
+      '<button id="share-drawer__link">Copy link</button>' +
+      '</footer>' +
+      '</aside>'
+
+    var el = $(markup).appendTo(document.body)
+    el.find('.sp-drawer__close').on('click', closeShare)
+
+    el.find('#share-drawer__png').on('click', function () {
+      var canvas = el.find('.sp-share__preview canvas')[0]
+      if (!canvas) return
+      canvas.toBlob(function (blob) {
+        var url = window.URL.createObjectURL(blob)
+        var base = shareSummary && shareSummary.name ? shareSummary.name : 'build'
+        var link = $('<a></a>').attr({ href: url, download: base.replace(/[^\w -]+/g, '') + '.png' })
+        $(document.body).append(link)
+        link[0].click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+        toast('Image saved')
+      })
+    })
+
+    el.find('#share-drawer__markdown').on('click', function () {
+      if (shareSummary) copyToClipboard(buildMarkdown(shareSummary))
+    })
+
+    el.find('#share-drawer__link').on('click', function () {
+      copyToClipboard(shareUrl(currentState()))
+    })
+
+    $(document).on('keydown', function (event) {
+      if (event.which === 27 && shareIsOpen()) closeShare()
+    })
+
+    return el
+  }
+
+  var shareSummary = null
+
+  function openShare() {
+    if (!$('#share-drawer').length) buildShareDrawer()
+    closeDrawer()
+    closeBrowse()
+
+    shareSummary = buildSummary()
+    var canvas = drawCard(shareSummary)
+    /* Shown at the drawer's width while exporting at full resolution. */
+    $(canvas).css({ width: '100%', height: 'auto' })
+    $('#share-drawer .sp-share__preview').empty().append(canvas)
+
+    $('#share-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
+    $('#sp-button-image').addClass('sp-button--active')
+  }
+
+  function closeShare() {
+    $('#share-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
+    $('#sp-button-image').removeClass('sp-button--active')
+  }
+
   function browseIsOpen() {
     return $('#browse-drawer').hasClass('sp-drawer--open')
   }
@@ -1901,8 +1989,9 @@
     browseState.slot = slot || browseState.slot || browseSlots[0]
     if (!browseState.slot) return
 
-    /* Both are anchored to the same edge, so only one is up at a time. */
+    /* All three are anchored to the same edge, so only one is up at a time. */
     closeDrawer()
+    closeShare()
 
     var picker = $('#browse-drawer .sp-browse__slot').empty()
     for (var i = 0; i < browseSlots.length; i++) {
@@ -1923,6 +2012,244 @@
   function slotById(id) {
     for (var i = 0; i < browseSlots.length; i++) if (browseSlots[i].id === id) return browseSlots[i]
     return null
+  }
+
+  /* ------------------------------------------------------------------ share card */
+
+  /* A link is the right way to hand a build to someone who will open it. A picture is the right
+     way to post one somewhere people are only reading - Discord, Reddit - where a link to a
+     planner is a worse answer than the build itself.
+     
+     Drawn onto a canvas by hand rather than pulling in a DOM-to-image library: no new dependency,
+     nothing to break offline, and full control of the layout. */
+
+  var CARD = {
+    width: 760,
+    pad: 28,
+    ink: '#e8e4dc',
+    dim: '#8f8a80',
+    gold: '#d0a24c',
+    rule: '#33312d',
+    back: '#171717'
+  }
+
+  function attributeSummary() {
+    var rows = []
+    $('.planner .attributes input, #hollowing, #humanity').each(function () {
+      if (!this.id) return
+      /* The planner capitalises these in CSS, so the text in the DOM is lowercase and a canvas
+         would render it that way. */
+      var label = ($('label[for="' + this.id + '"]').text() || this.id).replace(/^./, function (c) {
+        return c.toUpperCase()
+      })
+      var total = $('#' + this.id + '-total').text()
+      rows.push({ label: label, value: (total || $(this).val() || '').toString() })
+    })
+    return rows
+  }
+
+  function equipmentSummary() {
+    var rows = []
+    var lists = adapter.lists || []
+    for (var l = 0; l < lists.length; l++) {
+      var list = resolveListIds(lists[l])
+      if (['armor', 'weapons', 'rings'].indexOf(list.key) === -1) continue
+
+      for (var i = 0; i < list.ids.length; i++) {
+        var id = list.ids[i]
+        var $select = $('#' + id)
+        var value = $select.val()
+        var parked = parkedSlotValues(id)
+        var text = optionText($select, parked ? parked[0] : value)
+        if (!text || value === emptyValue($select)) {
+          if (!parked) continue
+        }
+
+        for (var e = 0; e < list.extras.length; e++) {
+          var suffix = list.extras[e]
+          var extraValue = parked ? parked[e + 1] : $('#' + id + suffix).val()
+          if (extraValue === undefined) continue
+          if (suffix === '-reinforce') {
+            if (Number(extraValue) > 0) text += ' +' + extraValue
+          } else {
+            var extraText = optionText($('#' + id + suffix), extraValue)
+            if (extraText && !/^no /i.test(extraText)) text += ' (' + extraText + ')'
+          }
+        }
+        rows.push({ label: slotLabel(id), value: text + (parked ? ' [parked]' : '') })
+      }
+    }
+    return rows
+  }
+
+  function parkedSlotValues(id) {
+    return parked.hasOwnProperty(id) ? parked[id] : null
+  }
+
+  function numberSummary() {
+    var wanted = ['hp', 'fp', 'stamina', 'equipment-load', 'weight-left', 'poise']
+    var rows = readResults(document)
+    var out = []
+    for (var i = 0; i < rows.length; i++) {
+      if (wanted.indexOf(rows[i].id) === -1) continue
+      out.push({ label: rows[i].label, value: rows[i].value })
+    }
+    return out
+  }
+
+  function buildSummary() {
+    var entry = savedEntry()
+    var build = currentBuild()
+    var meta = []
+    var $class = $('#class')
+    if ($class.length) meta.push(optionText($class, build.class_))
+    var $gender = $('#gender')
+    if ($gender.length) meta.push(optionText($gender, build.gender))
+    var covenant = optionText($('#covenant'), build.covenant)
+    if (covenant && !/^no /i.test(covenant)) meta.push(covenant)
+
+    return {
+      name: entry ? entry.name : 'Unsaved build',
+      notes: entry ? entry.notes || '' : '',
+      level: build.level,
+      game: (document.title || '').replace(/^●\s*/, '').replace(/ Character Planner$/, ''),
+      meta: meta.filter(Boolean),
+      attributes: attributeSummary(),
+      equipment: equipmentSummary(),
+      numbers: numberSummary(),
+      link: shareUrl(currentState())
+    }
+  }
+
+  function drawCard(summary) {
+    var canvas = document.createElement('canvas')
+    var ratio = window.devicePixelRatio || 1
+    var pad = CARD.pad
+    var colWidth = (CARD.width - pad * 2) / 2
+
+    /* Two side-by-side blocks, so the taller one sets the height of each band. */
+    var attrRows = Math.ceil(summary.attributes.length / 2)
+    var bodyRows = Math.max(attrRows, summary.numbers.length)
+    var height = pad + 40 + 22 + 18 + bodyRows * 20 + 26 + summary.equipment.length * 19 + 30
+    if (summary.notes) height += 22
+
+    canvas.width = CARD.width * ratio
+    canvas.height = height * ratio
+    var ctx = canvas.getContext('2d')
+    ctx.scale(ratio, ratio)
+
+    ctx.fillStyle = CARD.back
+    ctx.fillRect(0, 0, CARD.width, height)
+
+    var y = pad + 20
+    ctx.fillStyle = CARD.gold
+    ctx.font = "22px Aclonica, sans-serif"
+    ctx.textAlign = 'left'
+    ctx.fillText(summary.name, pad, y)
+
+    ctx.fillStyle = CARD.ink
+    ctx.font = '18px sans-serif'
+    ctx.textAlign = 'right'
+    ctx.fillText('SL ' + summary.level, CARD.width - pad, y)
+
+    y += 20
+    ctx.textAlign = 'left'
+    ctx.fillStyle = CARD.dim
+    ctx.font = '13px sans-serif'
+    ctx.fillText(summary.meta.join('  ·  '), pad, y)
+
+    if (summary.notes) {
+      y += 18
+      ctx.fillStyle = CARD.dim
+      ctx.font = 'italic 12px sans-serif'
+      ctx.fillText(summary.notes.slice(0, 90), pad, y)
+    }
+
+    y += 14
+    ctx.strokeStyle = CARD.rule
+    ctx.beginPath()
+    ctx.moveTo(pad, y)
+    ctx.lineTo(CARD.width - pad, y)
+    ctx.stroke()
+    y += 20
+
+    var bodyTop = y
+    ctx.font = '13px sans-serif'
+    for (var a = 0; a < summary.attributes.length; a++) {
+      var col = a < attrRows ? 0 : 1
+      var row = a % attrRows
+      var x = pad + col * (colWidth / 2)
+      ctx.fillStyle = CARD.dim
+      ctx.textAlign = 'left'
+      ctx.fillText(summary.attributes[a].label, x, bodyTop + row * 20)
+      ctx.fillStyle = CARD.ink
+      ctx.textAlign = 'right'
+      ctx.fillText(summary.attributes[a].value, x + colWidth / 2 - 16, bodyTop + row * 20)
+    }
+
+    for (var nIndex = 0; nIndex < summary.numbers.length; nIndex++) {
+      var ny = bodyTop + nIndex * 20
+      ctx.fillStyle = CARD.dim
+      ctx.textAlign = 'left'
+      ctx.fillText(summary.numbers[nIndex].label, pad + colWidth, ny)
+      ctx.fillStyle = CARD.ink
+      ctx.textAlign = 'right'
+      ctx.fillText(summary.numbers[nIndex].value, CARD.width - pad, ny)
+    }
+
+    y = bodyTop + bodyRows * 20 + 8
+    ctx.strokeStyle = CARD.rule
+    ctx.beginPath()
+    ctx.moveTo(pad, y)
+    ctx.lineTo(CARD.width - pad, y)
+    ctx.stroke()
+    y += 18
+
+    ctx.font = '13px sans-serif'
+    for (var e = 0; e < summary.equipment.length; e++) {
+      ctx.fillStyle = CARD.dim
+      ctx.textAlign = 'left'
+      ctx.fillText(summary.equipment[e].label, pad, y)
+      ctx.fillStyle = CARD.ink
+      ctx.fillText(summary.equipment[e].value, pad + 82, y)
+      y += 19
+    }
+
+    ctx.fillStyle = CARD.dim
+    ctx.font = '11px sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(summary.game, pad, height - 12)
+
+    return canvas
+  }
+
+  function buildMarkdown(summary) {
+    var lines = []
+    lines.push('**' + summary.name + '** — SL ' + summary.level + ' · ' + summary.game)
+    if (summary.meta.length) lines.push(summary.meta.join(' · '))
+    if (summary.notes) lines.push('_' + summary.notes + '_')
+    lines.push('')
+
+    var stats = []
+    for (var a = 0; a < summary.attributes.length; a++) {
+      stats.push(summary.attributes[a].label + ' ' + summary.attributes[a].value)
+    }
+    lines.push('`' + stats.join('  ') + '`')
+    lines.push('')
+
+    for (var e = 0; e < summary.equipment.length; e++) {
+      lines.push('- **' + summary.equipment[e].label + ':** ' + summary.equipment[e].value)
+    }
+    lines.push('')
+
+    var numbers = []
+    for (var n = 0; n < summary.numbers.length; n++) {
+      numbers.push(summary.numbers[n].label + ' ' + summary.numbers[n].value)
+    }
+    lines.push(numbers.join(' · '))
+    lines.push('')
+    lines.push(summary.link)
+    return lines.join('\n')
   }
 
   /* ------------------------------------------------------------------- status */
@@ -2547,6 +2874,7 @@
 
   function openDrawer() {
     closeBrowse()
+    closeShare()
     if (!$('#builds-drawer').length) {
       buildDrawer()
       $('#builds-drawer .sp-sort').val(store.get(KEY_SORT, 'recent'))
@@ -2603,6 +2931,13 @@
 
     $('<button class="material-icons" id="sp-button-builds" title="Saved builds">folder</button>')
       .on('click', toggleDrawer)
+      .appendTo(options)
+
+    $('<button type="button" class="material-icons" id="sp-button-image" title="Share as an image or text">image</button>')
+      .on('click', function () {
+        if (shareIsOpen()) closeShare()
+        else openShare()
+      })
       .appendTo(options)
 
     $('<button class="material-icons" id="sp-button-share" title="Copy share link">link</button>')
