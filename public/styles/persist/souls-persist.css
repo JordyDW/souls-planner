@@ -1013,3 +1013,76 @@
   border: 1px solid #333;
   display: block;
 }
+
+/* ================================================================== planner polish */
+
+/* Restricted to typography, colour and spacing on purpose. The planner's layout is built from
+   calc() widths that change at several breakpoints, so anything structural here would be a
+   guaranteed regression - the field-width bug earlier in this work was exactly that. */
+
+/* Section captions read as floating grey text rather than headings.
+   Only captions that are a plain label get this. The class is also used for multi-column headers
+   ("Init  Current  Alter  Total"), where extra letter-spacing runs the words together, and for
+   generated sentences like the stamina regeneration line, where uppercasing reads as shouting -
+   both of which this broke on the first attempt. Where :has() is unsupported the rule is simply
+   dropped and the planner keeps its original look. */
+.planner.dark .mini-caption:not(:has(*)) {
+  border-bottom: 1px solid #2b2b2b;
+  color: #9a8f7d;
+  letter-spacing: 0.06em;
+  padding-bottom: 3px;
+}
+
+/* Numbers in a stats tool should line up; proportional digits make columns ragged. */
+.planner.dark input[type='text'],
+.planner.dark input[type='number'],
+.planner.dark output {
+  font-variant-numeric: tabular-nums;
+}
+
+/* There was no focus ring at all, which makes keyboard use guesswork. */
+.planner.dark input:focus-visible,
+.planner.dark select:focus-visible,
+.planner.dark button:focus-visible {
+  outline: 2px solid #d0a24c;
+  outline-offset: 1px;
+}
+
+/* Attribute rows are the part you scrub up and down; a hover tint makes the row you are on
+   obvious across the Init / Current / Alter / Total columns. */
+.planner.dark .attributes > div:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+/* Same for the results, which are read across a long list of labels and values. */
+.planner.dark .perfomance-1 > div:hover,
+.planner.dark .perfomance-2 .defence > div:hover,
+.planner.dark .perfomance-2 .absorption > div:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+/* The three columns sit on one flat background with nothing to separate them. */
+.planner.dark .col {
+  background: rgba(255, 255, 255, 0.012);
+}
+
+/* Readonly outputs are results, not fields you can type in - they should not look identical to
+   the inputs next to them. */
+.planner.dark input[readonly] {
+  background: 0 0;
+  border-color: #2e2e2e;
+  color: #e6e2d8;
+}
+
+/* The requirement readouts above each weapon are dense punctuation at low contrast. */
+.planner.dark .requirements,
+.planner.dark .equipment-params {
+  letter-spacing: 0.02em;
+}
+
+.planner.dark .character-class label,
+.planner.dark .attributes label,
+.planner.dark .perfomance-1 label,
+.planner.dark .perfomance-2 label {
+  color: #b9b3a7;
+}
