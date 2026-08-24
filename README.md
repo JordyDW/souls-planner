@@ -170,6 +170,33 @@ few marks may need clearing by hand once.
 Owned state is per game, kept beside your builds, and deliberately never travels in a share link:
 it describes you, not the build.
 
+### Handing your inventory to an assistant
+
+**Copy inventory for an AI**, at the bottom of the Items panel, writes out everything you have
+marked — grouped the way the game groups it, with the numbers that decide a choice, and with what
+you are wearing right now marked as such:
+
+```
+HEAD (2)
+  Alva Helm - 4.2 wt, 3.7 poise, 4.4% absorption
+  Black Witch Hat - 1.8 wt, 0.2 poise, 1.9% absorption
+
+WEAPONS (3)
+  Carthus Curved Greatsword - 10.5 wt, needs 18 str/22 dex
+
+RINGS (2)
+  Carthus Milkring (equipped) - 0.8 wt, Increases dexterity by 3. Obscures rolling.
+```
+
+It opens by asking the assistant to suggest only from that list, which is the thing it otherwise
+gets wrong — recommending a weapon you have never found. Anything equipped but unmarked is named
+at the end and explicitly called out as *not* owned, so a build in progress does not silently read
+as gear you have.
+
+This is separate from **Copy for an AI** in the share panel: that one describes the character you
+have built, this one describes what you have to build with. Each game adapts to its own numbers —
+Dark Souls and Dark Souls 2 report flat defence where Dark Souls 3 reports percentage absorption.
+
 ### Browsing a slot properly
 
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The

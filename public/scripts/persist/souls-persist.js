@@ -2133,6 +2133,10 @@
       .find('.sp-browse__mark')
       .prop('disabled', !rows.length)
       .text((allShownOwned ? 'Unmark ' : 'Mark ') + rows.length + ' shown')
+
+    pane
+      .find('#browse-drawer__inventory')
+      .text('Copy inventory for an AI (' + ownedCount() + ')')
   }
 
   /* Its own drawer, not a third pane inside the saved-builds one. Browsing what could go in a
@@ -2162,11 +2166,22 @@
       '</div>' +
       '<div class="sp-browse__body"></div>' +
       '</div>' +
+      '<footer class="sp-drawer__foot">' +
+      '<button class="default" id="browse-drawer__inventory">Copy inventory for an AI</button>' +
+      '</footer>' +
       '</aside>'
 
     var el = $(markup).appendTo(document.body)
 
     el.find('.sp-drawer__close').on('click', closeBrowse)
+
+    /* The panel that manages what you own is the place to hand it over, rather than the share
+       panel, which is about the build. */
+    el.find('#browse-drawer__inventory').on('click', function () {
+      var count = ownedCount()
+      copyToClipboard(inventoryReport())
+      toast(count ? 'Copied ' + count + ' owned items' : 'Copied - nothing marked as owned yet')
+    })
 
     el.on('change', '.sp-browse__slot', function () {
       var slot = slotById($(this).val())
@@ -2651,6 +2666,140 @@
   /* A handoff for an assistant, which wants different things from a forum post: everything,
      unambiguously, with the numbers it would otherwise have to ask for. The markdown above is
      deliberately short and pretty; this is deliberately complete. */
+  var REQUIREMENT_SHORT = { strength: 'str', dexterity: 'dex', intelligence: 'int', faith: 'fth' }
+
+  /* Everything you have marked as owned, written out for an assistant. The build readout answers
+     "what am I wearing"; this answers "what may you suggest", which is the question that stops it
+     recommending a weapon you have never found. Grouped the way the game groups it, with the
+     numbers that actually decide a choice, and with what is on you right now marked - so it can
+     tell owning something from wearing it. */
+  function inventoryRows() {
+    var lists = adapter.lists || []
+    var index = {}
+    var rows = []
+
+    for (var l = 0; l < lists.length; l++) {
+      var kind = OWN_KINDS[lists[l].key]
+      if (!kind) continue
+      var resolved = resolveListIds(lists[l])
+
+      for (var i = 0; i < resolved.ids.length; i++) {
+        var $select = $('#' + resolved.ids[i])
+        if (!$select.length) continue
+
+        /* jshint loopfunc:true */
+        ;(function ($slot, slotId, slotKind) {
+          var equipped = $slot.val()
+          var empty = emptyValue($slot)
+
+          $slot.find('option').each(function () {
+            var value = this.value
+            if (!value || value === '-1' || value === empty) return
+            if (!isOwned(slotKind, value)) return
+
+            var key = slotKind + '|' + value
+            if (!index[key]) {
+              index[key] = { kind: slotKind, value: value, name: $(this).text(), slots: [], equipped: false }
+              rows.push(index[key])
+            }
+            index[key].slots.push(slotId)
+            if (value === equipped) index[key].equipped = true
+          })
+        })($select, resolved.ids[i], kind)
+      }
+    }
+    return rows
+  }
+
+  function inventoryDetail(row) {
+    var info = askInfo(row.kind, row.value, row.slots[0])
+    if (!info) return ''
+    var bits = []
+    var unit = (adapter.info && adapter.info.defenceUnit) || ''
+
+    if (info.weight !== undefined && info.weight !== null) bits.push(info.weight.toFixed(1) + ' wt')
+
+    if (row.kind === 'armor') {
+      if (info.poise !== undefined && info.poise !== null) bits.push(info.poise.toFixed(1) + ' poise')
+      if (info.defence !== undefined && info.defence !== null) {
+        bits.push(info.defence.toFixed(1) + unit + (unit ? ' absorption' : ' defence'))
+      }
+    } else if (row.kind === 'weapon' && info.req) {
+      var needs = []
+      for (var r = 0; r < REQUIREMENT_KEYS.length; r++) {
+        var key = REQUIREMENT_KEYS[r]
+        if (info.req[key]) needs.push(info.req[key] + ' ' + REQUIREMENT_SHORT[key])
+      }
+      if (needs.length) bits.push('needs ' + needs.join('/'))
+    } else if (row.kind === 'ring' && info.effects && info.effects.length) {
+      bits.push(info.effects.join(' '))
+    } else if (row.kind === 'spell') {
+      if (info.fp !== undefined && info.fp !== null) bits.push(info.fp + ' FP')
+      if (info.slots) bits.push(info.slots + (info.slots === 1 ? ' slot' : ' slots'))
+    }
+    return bits.join(', ')
+  }
+
+  function inventoryReport() {
+    var rows = inventoryRows()
+    var game = (document.title || '').replace(/^●\s*/, '').replace(/ Character Planner$/, '')
+    var lines = []
+
+    if (!rows.length) {
+      return (
+        'I have not marked anything as owned in my ' + game + ' planner yet, so treat my ' +
+        'inventory as unknown rather than empty.'
+      )
+    }
+
+    lines.push(
+      'Here is my ' + game + ' inventory, exported from a planner: ' + rows.length +
+      ' items I have marked as owned. Please only suggest gear from this list, and use these ' +
+      'exact numbers rather than estimating. Items marked (equipped) are what I have on now.'
+    )
+
+    /* Grouped by slot where an item only goes in one - a helm is a helm - and by family where it
+       could go in several, since naming one of six hands would be arbitrary. */
+    var groups = {}
+    var order = []
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      var label = row.slots.length === 1 ? slotLabel(row.slots[0]) : BROWSE_GROUPS[row.kind] || row.kind
+      if (!groups[label]) {
+        groups[label] = []
+        order.push(label)
+      }
+      groups[label].push(row)
+    }
+
+    for (var g = 0; g < order.length; g++) {
+      var group = groups[order[g]]
+      group.sort(function (a, b) {
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+      })
+
+      lines.push('')
+      lines.push(order[g].toUpperCase() + ' (' + group.length + ')')
+      for (var m = 0; m < group.length; m++) {
+        var detail = inventoryDetail(group[m])
+        lines.push(
+          '  ' + group[m].name + (group[m].equipped ? ' (equipped)' : '') + (detail ? ' - ' + detail : '')
+        )
+      }
+    }
+
+    var missing = unownedInBuild()
+    if (missing.length) {
+      lines.push('')
+      lines.push(
+        'NOT IN MY INVENTORY BUT CURRENTLY EQUIPPED: ' + missing.join(', ') +
+        ' - I have not marked these as owned, so do not assume I have them.'
+      )
+    }
+
+    return lines.join('\n')
+  }
+
   function agentReport(summary) {
     var build = currentBuild()
     var lines = []
@@ -2823,8 +2972,15 @@
     return Object.prototype.hasOwnProperty.call(owned, ownKey(kind, value))
   }
 
+  /* "-1" is the planner's marker for an empty slot. It is not a thing you can own, and an old
+     inventory had picked up three of them - one per family - which then showed up as a count that
+     did not match anything you could see. */
+  function ownableValue(value) {
+    return !!value && value !== '-1'
+  }
+
   function setOwned(kind, value, on) {
-    if (!kind) return
+    if (!kind || !ownableValue(value)) return
     if (on) owned[ownKey(kind, value)] = 1
     else delete owned[ownKey(kind, value)]
     store.set(KEY.owned, owned)
@@ -2835,10 +2991,18 @@
      reading - it is what the old code meant by that key anyway. */
   function migrateOwned() {
     var bare = []
+    var junk = []
     for (var key in owned) {
-      if (Object.prototype.hasOwnProperty.call(owned, key) && key.indexOf('|') === -1) bare.push(key)
+      if (!Object.prototype.hasOwnProperty.call(owned, key)) continue
+      if (!ownableValue(key.split('|').pop())) junk.push(key)
+      else if (key.indexOf('|') === -1) bare.push(key)
     }
-    if (!bare.length) return
+
+    for (var j = 0; j < junk.length; j++) delete owned[junk[j]]
+    if (!bare.length) {
+      if (junk.length) store.set(KEY.owned, owned)
+      return
+    }
 
     var lists = adapter.lists || []
     for (var b = 0; b < bare.length; b++) {
