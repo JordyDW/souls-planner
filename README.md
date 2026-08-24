@@ -96,8 +96,8 @@ multiplicatively rather than adding, which is how the planner totals them.
 
 ### Undo
 
-`Ctrl`+`Z` steps back through your last 50 changes and `Ctrl`+`Shift`+`Z` (or `Ctrl`+`Y`) steps
-forward again. Equipment, stats, infusions, toggles and parked slots all come back, and loading a
+The undo and redo buttons in the toolbar step through your last 50 changes, as do `Ctrl`+`Z` and
+`Ctrl`+`Shift`+`Z` (or `Ctrl`+`Y`). They grey out when there is nothing left in that direction. Equipment, stats, infusions, toggles and parked slots all come back, and loading a
 saved build counts as a step, so you can undo that too. Inside the drawer's text boxes `Ctrl`+`Z`
 is left to the browser, where you would want it for typing.
 

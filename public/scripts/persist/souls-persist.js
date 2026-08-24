@@ -1346,6 +1346,11 @@
   var TIMELINE_LIMIT = 50
   var restoring = false
 
+  function syncHistoryButtons() {
+    $('#sp-button-undo').prop('disabled', timelineAt <= 0)
+    $('#sp-button-redo').prop('disabled', timelineAt >= timeline.length - 1)
+  }
+
   function pushHistory(state) {
     if (restoring) return
     var json = JSON.stringify(state)
@@ -1354,6 +1359,7 @@
     timeline.push(JSON.parse(json))
     if (timeline.length > TIMELINE_LIMIT) timeline.shift()
     timelineAt = timeline.length - 1
+    syncHistoryButtons()
   }
 
   function stepHistory(delta) {
@@ -1371,6 +1377,7 @@
     } finally {
       restoring = false
     }
+    syncHistoryButtons()
     toast(delta < 0 ? 'Undo' : 'Redo')
   }
 
@@ -2321,6 +2328,20 @@
     /* Separates the planner's own actions from the ones this adds. */
     $('<span class="sp-toolbar__sep"></span>').appendTo(options)
 
+    $('<button type="button" class="material-icons" id="sp-button-undo" title="Undo (Ctrl+Z)">undo</button>')
+      .on('click', function () {
+        stepHistory(-1)
+      })
+      .appendTo(options)
+
+    $('<button type="button" class="material-icons" id="sp-button-redo" title="Redo (Ctrl+Shift+Z)">redo</button>')
+      .on('click', function () {
+        stepHistory(1)
+      })
+      .appendTo(options)
+
+    $('<span class="sp-toolbar__sep"></span>').appendTo(options)
+
     $('<button class="material-icons" id="sp-button-save" title="Save build (Ctrl+S)">save</button>')
       .on('click', function () {
         saveCurrent(false)
@@ -2376,6 +2397,7 @@
     }
 
     buildToolbar()
+    syncHistoryButtons()
     rebindStockButtons()
     buildToggles()
     applyParked(restoredParked)
