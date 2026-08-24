@@ -104,6 +104,25 @@ The card is drawn straight onto a canvas rather than through a DOM-to-image libr
 no extra dependency and it keeps working offline. Parked slots are labelled as such rather than
 silently omitted.
 
+### Marking what you own
+
+The planner assumes you have access to everything, which is never true mid-playthrough. Mark items
+as owned and the inventory button filters every dropdown and the browser down to what you actually
+have — the equipped item always stays selectable, so nothing gets stuck.
+
+Filling the list is the part that had to be cheap, because Dark Souls 3 alone has 360 armour
+pieces, 305 weapons, 115 rings and 105 spells:
+
+* **Anything you equip is marked automatically.** The list builds itself as you use the planner.
+* **Armour sets go in one click.** The item ids encode sets, so *set* on any piece marks the whole
+  four-piece set across all four slots. (Dark Souls 2 keys items by name, so there it marks the
+  single piece.)
+* **Bulk marking in the browser** — search, then *Mark all shown*.
+
+The status line quietly notes when a build uses something you have not marked. Owned state is per
+game, kept beside your builds, and deliberately never travels in a share link: it describes you,
+not the build.
+
 ### Browsing a slot properly
 
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The

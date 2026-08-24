@@ -359,7 +359,9 @@
     autosave: 'soulsPlanner.autosave.' + game,
     builds: 'soulsPlanner.builds.' + game,
     currentId: 'soulsPlanner.currentId.' + game,
-    calculator: 'soulsPlanner.calc.' + game + '.' + (page ? page.name : '')
+    calculator: 'soulsPlanner.calc.' + game + '.' + (page ? page.name : ''),
+    owned: 'soulsPlanner.owned.' + game,
+    ownedFilter: 'soulsPlanner.ownedFilter.' + game
   }
 
   /* --------------------------------------------------------- parked slots */
@@ -1506,6 +1508,7 @@
     if (!instance) return
     var options = $.extend({}, instance.options.options)
     options.templateResult = templateFor(kind, $select.attr('id'))
+    options.matcher = makeMatcher($select)
     $select.select2('destroy')
     $select.select2(options)
   }
@@ -1701,7 +1704,7 @@
      chosen inside - which also means you can flick between slots while comparing. */
 
   var browseSlots = []
-  var browseState = { slot: null, sort: { key: 'name', dir: 1 }, fits: false }
+  var browseState = { slot: null, sort: { key: 'name', dir: 1 }, fits: false, ownedOnly: false, shown: [] }
 
   var BROWSE_COLUMNS = {
     armor: [
@@ -1782,6 +1785,7 @@
     var rows = browseRows(slot).filter(function (row) {
       if (term && row.name.toLowerCase().indexOf(term) === -1) return false
       if (budget !== null && row.weight > budget) return false
+      if (browseState.ownedOnly && !isOwned(row.value)) return false
       return true
     })
 
@@ -1799,6 +1803,7 @@
 
     var table = $('<table class="sp-browse"></table>')
     var head = $('<tr></tr>')
+    $('<th class="sp-browse__own-head" title="Mark what you have"></th>').text('Own').appendTo(head)
     for (var c = 0; c < columns.length; c++) {
       var col = columns[c]
       $('<th></th>')
@@ -1814,6 +1819,15 @@
       var row = rows[r]
       var tr = $('<tr class="sp-browse__row"></tr>').attr('data-value', row.value)
       if (row.value === equipped) tr.addClass('sp-browse__row--equipped')
+      var ownCell = $('<td class="sp-browse__own-cell"></td>').append(
+        $('<input type="checkbox" class="sp-browse__own" />').prop('checked', isOwned(row.value))
+      )
+      if (slot.kind === 'armor' && setSiblings(row.value).length > 1) {
+        ownCell.append(
+          $('<button type="button" class="sp-browse__set" title="Own the whole set">set</button>')
+        )
+      }
+      ownCell.appendTo(tr)
       for (var i = 0; i < columns.length; i++) {
         var column = columns[i]
         var value = row[column.key]
@@ -1829,8 +1843,14 @@
       table.append(tr)
     }
 
+    browseState.shown = rows.map(function (row) {
+      return row.value
+    })
+
     pane.find('.sp-browse__where').text(' · ' + slot.label)
-    pane.find('.sp-browse__count').text(rows.length + (rows.length === 1 ? ' item' : ' items'))
+    pane.find('.sp-browse__count').text(
+      rows.length + (rows.length === 1 ? ' item' : ' items') + ' · ' + ownedCount() + ' owned'
+    )
     pane.find('.sp-browse__body').empty().append(table)
     pane.find('.sp-browse__fits').prop('disabled', weightBudget(slot) === null)
   }
@@ -1852,6 +1872,10 @@
       '<label class="sp-browse__fits-label">' +
       '<input type="checkbox" class="sp-browse__fits" /> Only what fits' +
       '</label>' +
+      '<label class="sp-browse__fits-label">' +
+      '<input type="checkbox" class="sp-browse__owned" /> Only owned' +
+      '</label>' +
+      '<button type="button" class="sp-action sp-browse__mark">Mark all shown</button>' +
       '<span class="sp-browse__count"></span>' +
       '</div>' +
       '<div class="sp-browse__body"></div>' +
@@ -1875,6 +1899,48 @@
     el.on('change', '.sp-browse__fits', function () {
       browseState.fits = $(this).is(':checked')
       renderBrowse()
+    })
+
+    el.on('change', '.sp-browse__owned', function () {
+      browseState.ownedOnly = $(this).is(':checked')
+      renderBrowse()
+    })
+
+    /* Combined with the search box this is how a set gets marked in one go - type "Fallen
+       Knight", mark all four. */
+    el.on('click', '.sp-browse__mark', function () {
+      var values = browseState.shown || []
+      var everyOneOwned = values.length > 0
+      for (var i = 0; i < values.length; i++) if (!isOwned(values[i])) everyOneOwned = false
+      for (var j = 0; j < values.length; j++) setOwned(values[j], !everyOneOwned)
+      syncOwnedButton()
+      updateStatus()
+      renderBrowse()
+      toast((everyOneOwned ? 'Unmarked ' : 'Marked ') + values.length + ' items')
+    })
+
+    el.on('click', '.sp-browse__set', function (event) {
+      event.stopPropagation()
+      var pieces = setSiblings($(this).closest('.sp-browse__row').attr('data-value'))
+      var allOwned = true
+      for (var i = 0; i < pieces.length; i++) if (!isOwned(pieces[i])) allOwned = false
+      for (var j = 0; j < pieces.length; j++) setOwned(pieces[j], !allOwned)
+      syncOwnedButton()
+      updateStatus()
+      renderBrowse()
+      toast((allOwned ? 'Unmarked ' : 'Marked ') + pieces.length + '-piece set')
+    })
+
+    el.on('change', '.sp-browse__own', function (event) {
+      event.stopPropagation()
+      setOwned($(this).closest('.sp-browse__row').attr('data-value'), $(this).is(':checked'))
+      syncOwnedButton()
+      updateStatus()
+    })
+
+    /* The checkbox is inside the row, whose click equips - keep them apart. */
+    el.on('click', '.sp-browse__own', function (event) {
+      event.stopPropagation()
     })
 
     el.on('click', '.sp-browse th[data-sort]', function () {
@@ -2252,6 +2318,146 @@
     return lines.join('\n')
   }
 
+  /* -------------------------------------------------------------- owned items */
+
+  /* Marking what you actually have turns the planner from "what is the best build" into "what is
+     the best build I can make right now", which is the more useful question mid-playthrough.
+
+     The hard part is not storing it - it is filling it in. Dark Souls 3 alone has 360 armour
+     pieces, 305 weapons, 115 rings and 105 spells, and nobody is ticking a thousand boxes. So the
+     list fills itself: anything you equip is evidently something you own, and gets marked. The
+     browser adds bulk marking on top for when you want to catch up in one go.
+
+     Deliberately excluded: upgrade level. Owning a Falchion is the right granularity; tracking
+     "+10 Heavy" would make this a materials tracker, which is a different tool. And owned state
+     never travels in a share link - it describes you, not the build. */
+
+  var owned = store.get(KEY.owned, null) || {}
+  var ownedFilter = store.get(KEY.ownedFilter, false) === true
+
+  function isOwned(value) {
+    return Object.prototype.hasOwnProperty.call(owned, String(value))
+  }
+
+  function setOwned(value, on) {
+    if (on) owned[String(value)] = 1
+    else delete owned[String(value)]
+    store.set(KEY.owned, owned)
+  }
+
+  /* Armour comes in sets of four spread across four slots, and the browser only shows one slot at
+     a time - so searching a set name finds a single piece. The ids encode the set, though:
+     19000000 / 19001000 / 19002000 / 19003000 are the Fallen Knight helm, armour, gauntlets and
+     trousers, so dividing by 10000 groups them. That turns owning a set into one click instead of
+     four searches. Dark Souls 2 keys its items by name rather than number, so there it degrades to
+     marking the single piece. */
+  function setSiblings(value) {
+    var id = parseInt(value, 10)
+    if (isNaN(id) || !adapter.lists || !adapter.lists.length) return [value]
+    var key = Math.floor(id / 10000)
+    var found = []
+    $(adapter.lists[0].selector).each(function () {
+      $(this)
+        .find('option')
+        .each(function () {
+          var other = parseInt(this.value, 10)
+          if (!isNaN(other) && Math.floor(other / 10000) === key) found.push(this.value)
+        })
+    })
+    return found.length ? found : [value]
+  }
+
+  function ownedCount() {
+    var count = 0
+    for (var key in owned) if (owned.hasOwnProperty(key)) count++
+    return count
+  }
+
+  /* The slots whose contents are things you can own - the same families the browser covers. */
+  function ownableSelectors() {
+    var lists = adapter.lists || []
+    var out = []
+    for (var i = 0; i < lists.length; i++) {
+      if (['armor', 'weapons', 'rings', 'spells'].indexOf(lists[i].key) === -1) continue
+      out.push(lists[i].selector)
+    }
+    return out.join(', ')
+  }
+
+  /* Equipping something is the cheapest possible way to say you have it. */
+  function noteEquipped($select) {
+    var value = $select.val()
+    if (!value || value === '-1' || value === emptyValue($select)) return
+    if (isOwned(value)) return
+    setOwned(value, true)
+  }
+
+  function unownedInBuild() {
+    var missing = []
+    var lists = adapter.lists || []
+    for (var l = 0; l < lists.length; l++) {
+      if (['armor', 'weapons', 'rings', 'spells'].indexOf(lists[l].key) === -1) continue
+      var list = resolveListIds(lists[l])
+      for (var i = 0; i < list.ids.length; i++) {
+        var $select = $('#' + list.ids[i])
+        var value = $select.val()
+        if (!value || value === '-1' || value === emptyValue($select)) continue
+        if (!isOwned(value)) missing.push(optionText($select, value) || value)
+      }
+    }
+    return missing
+  }
+
+  /* Reads ownedFilter at call time, so toggling the filter takes effect without rebuilding any
+     of the dropdowns. */
+  function matchOne(term, data, $select) {
+    if (!data || data.id === undefined) return null
+    if (term && String(data.text).toLowerCase().indexOf(term) === -1) return null
+    if (!ownedFilter) return data
+    if (!data.id || data.id === '-1') return data
+    /* Whatever is equipped stays selectable even if you have not marked it. */
+    if (String($select.val()) === String(data.id)) return data
+    return isOwned(data.id) ? data : null
+  }
+
+  function makeMatcher($select) {
+    return function (params, data) {
+      var term = $.trim(params.term || '').toLowerCase()
+      if (data.children) {
+        var kept = []
+        for (var i = 0; i < data.children.length; i++) {
+          var child = matchOne(term, data.children[i], $select)
+          if (child) kept.push(child)
+        }
+        if (!kept.length) return null
+        var group = $.extend({}, data, true)
+        group.children = kept
+        return group
+      }
+      return matchOne(term, data, $select)
+    }
+  }
+
+  function syncOwnedButton() {
+    $('#sp-button-owned')
+      .toggleClass('sp-button--active', ownedFilter)
+      .attr(
+        'title',
+        ownedFilter
+          ? 'Showing only what you own (' + ownedCount() + ' marked) - click to show everything'
+          : 'Show only items you own (' + ownedCount() + ' marked)'
+      )
+  }
+
+  function toggleOwnedFilter() {
+    ownedFilter = !ownedFilter
+    store.set(KEY.ownedFilter, ownedFilter)
+    syncOwnedButton()
+    updateStatus()
+    if ($('#browse-drawer').length) renderBrowse()
+    toast(ownedFilter ? 'Showing only what you own' : 'Showing everything')
+  }
+
   /* ------------------------------------------------------------------- status */
 
   /* "Saved or not" is more useful as a number than as a dot. Because the diff engine already
@@ -2295,11 +2501,23 @@
     output.parent().toggle(notes.length > 0)
   }
 
+  /* Quiet, not a warning: planning around something you have not picked up yet is a normal thing
+     to do, and the tool should not nag about it. */
+  function noteMissing(chip, missing) {
+    if (!missing.length) return
+    chip.append(
+      $('<span class="sp-status__missing"></span>')
+        .text(missing.length + (missing.length === 1 ? ' item' : ' items') + " you don't own")
+        .attr('title', missing.join('\n'))
+    )
+  }
+
   function updateStatus() {
     var chip = $('#sp-status')
     if (!chip.length) return
 
     var entry = savedEntry()
+    var missing = unownedInBuild()
     updateDescription(entry)
     chip.removeClass('sp-status--draft sp-status--saved sp-status--dirty')
 
@@ -2308,6 +2526,7 @@
         .addClass('sp-status--draft')
         .attr('title', 'This build is only in your browser and the link. Click to give it a name.')
         .html('<span class="sp-status__dot">○</span> Unsaved draft')
+      noteMissing(chip, missing)
       document.title = baseTitle
       return
     }
@@ -2320,6 +2539,7 @@
         .html('<span class="sp-status__dot">●</span> ')
         .append($('<span></span>').text(entry.name))
         .append(document.createTextNode(' · saved'))
+      noteMissing(chip, missing)
       document.title = baseTitle
       return
     }
@@ -2344,6 +2564,7 @@
       .append($('<span></span>').text(entry.name))
       .append(document.createTextNode(' · ' + changes.length + (changes.length === 1 ? ' unsaved change' : ' unsaved changes')))
       .append($('<span class="sp-status__fields"></span>').text(shown))
+    noteMissing(chip, missing)
     /* Visible in the tab strip, which matters when several planners are open at once. */
     document.title = '● ' + baseTitle
   }
@@ -2902,6 +3123,10 @@
     /* Separates the planner's own actions from the ones this adds. */
     $('<span class="sp-toolbar__sep"></span>').appendTo(options)
 
+    $('<button type="button" class="material-icons" id="sp-button-owned">inventory_2</button>')
+      .on('click', toggleOwnedFilter)
+      .appendTo(options)
+
     $('<button type="button" class="material-icons" id="sp-button-browse" title="Browse and compare everything for a slot">table_rows</button>')
       .on('click', function () {
         if (browseIsOpen()) closeBrowse()
@@ -2986,6 +3211,7 @@
 
     buildToolbar()
     syncHistoryButtons()
+    syncOwnedButton()
     rebindStockButtons()
     buildToggles()
     applyParked(restoredParked)
@@ -3005,6 +3231,19 @@
        the time we serialize, the recalculation is already done. The +/- stat buttons and the
        arrow-key handlers all go through .val(x).trigger('change'), so they are covered too. */
     $('.planner').on('change', 'select, input', schedulePersist)
+
+    var ownable = ownableSelectors()
+    if (ownable) {
+      /* Delegated from the document, not from .planner: jQuery resolves a delegated selector
+         relative to the element it is bound to, so ".planner .armor select" bound on .planner
+         would be looking for a .planner inside .planner and never match - which is exactly how
+         this failed silently the first time. */
+      $(document).on('change', ownable, function () {
+        if (applying) return
+        noteEquipped($(this))
+        syncOwnedButton()
+      })
+    }
 
     $(document).on('keydown', function (event) {
       if (!(event.ctrlKey || event.metaKey)) return

@@ -1086,3 +1086,45 @@
 .planner.dark .perfomance-2 label {
   color: #b9b3a7;
 }
+
+/* ------------------------------------------------------------------ owned items */
+
+.sp-browse__own-head,
+.sp-browse__own-cell {
+  text-align: center !important;
+  width: 1%;
+}
+
+.sp-browse__own {
+  cursor: pointer;
+  margin: 0;
+}
+
+.sp-status__missing {
+  color: #9a8f7d;
+  display: block;
+  font-size: 11px;
+}
+
+.sp-browse__mark {
+  border: 1px solid #ccc !important;
+  padding: 2px 8px !important;
+  white-space: nowrap;
+}
+
+.sp-browse__set {
+  background: 0 0;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  color: #666;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 4px;
+  padding: 1px 3px;
+}
+
+.sp-browse__set:hover {
+  border-color: #069;
+  color: #069;
+}
