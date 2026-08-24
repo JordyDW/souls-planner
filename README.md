@@ -199,6 +199,11 @@ Dark Souls and Dark Souls 2 report flat defence where Dark Souls 3 reports perce
 
 ### Browsing a slot properly
 
+On a phone this panel is the *only* place these numbers appear. Android and iOS get native
+dropdowns rather than select2, so there are no stat columns in the dropdowns and no hover preview —
+and for a long time the browser was empty there too, because it registered its slots inside the
+select2 setup that those platforms skip. It no longer does.
+
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The
 **Items** button in the toolbar opens its own panel listing every item for a slot as a sortable table — the same numbers as
 the dropdown, plus derived columns a dropdown cannot show, **poise per weight** being the one that
@@ -333,13 +338,27 @@ possible and disappears once it is installed. Installed, it opens in its own win
 browser chrome.
 
 After a deploy the new version installs in the background and applies on the next load; you get a
-"reload to update" note rather than having bundles swapped underneath a planner you are using. To
-force everything to be re-fetched, bump `CACHE_VERSION` in `sw.js`.
+"reload to use it" note rather than having bundles swapped underneath a planner you are using.
 
-Worth knowing if you edit the code: the worker serves the shell cache-first, so a changed script
-keeps loading from cache until the worker updates. Add `?nosw` to any URL to skip the worker and
-tear down whatever is installed — that is also the way out if a cache ever ends up in a bad state.
-Bumping `CACHE_VERSION` forces a clean rebuild for everyone.
+The shell is served **stale-while-revalidate**: you get the cached copy instantly, it is refetched
+in the background, and the next load has the new one. That is deliberate rather than incidental.
+It used to be cache-first, which had a nasty property: the browser only checks for a worker update
+when `sw.js` itself changes, so editing anything *else* left every device that had already visited
+pinned to that old build indefinitely, with no way back short of clearing site data. A phone could
+sit months behind. Three things caused it, and all three are fixed:
+
+* the shell revalidates, instead of being frozen until someone remembers to bump `CACHE_VERSION`
+* the precache and the revalidation both fetch past the HTTP cache, which otherwise answers them
+  with the very bytes the deploy was replacing
+* a worker that has installed but is waiting is handed over at load, because a plain reload does
+  not activate one — it waits for every tab to close, which on a phone is approximately never
+
+Game bundles stay cache-first: they are up to 11MB and never change, so revalidating them on every
+visit would be a large download to discover nothing had happened.
+
+Add `?nosw` to any URL to skip the worker and tear down whatever is installed — the way out if a
+cache ever ends up in a bad state. Bumping `CACHE_VERSION` in `sw.js` still forces a clean rebuild
+for everyone.
 
 ### A note on opening the files directly
 
