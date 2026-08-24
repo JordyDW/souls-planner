@@ -1128,3 +1128,14 @@
   border-color: #069;
   color: #069;
 }
+
+/* The count is also the fix for it. */
+.sp-status__missing {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.sp-status__missing:hover {
+  color: #d0a24c;
+}

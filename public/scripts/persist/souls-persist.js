@@ -2498,6 +2498,34 @@
     setOwned(value, true)
   }
 
+  /* Catching up in one go. Only explicit equips mark items, so a build arriving from a link or
+     from the autosave starts out looking like gear you do not have - which is correct for someone
+     else's build, and merely tedious for your own. */
+  function markEquippedOwned() {
+    var marked = 0
+    var lists = adapter.lists || []
+    for (var l = 0; l < lists.length; l++) {
+      if (['armor', 'weapons', 'rings', 'spells'].indexOf(lists[l].key) === -1) continue
+      var list = resolveListIds(lists[l])
+      for (var i = 0; i < list.ids.length; i++) {
+        var $select = $('#' + list.ids[i])
+        var value = $select.val()
+        if (!value || value === '-1' || value === emptyValue($select)) continue
+        if (isOwned(value)) continue
+        setOwned(value, true)
+        marked++
+      }
+      /* Parked slots hold something you own too - it is just not on you right now. */
+      for (var p in parked) {
+        if (parked.hasOwnProperty(p) && parked[p][0] && !isOwned(parked[p][0])) {
+          setOwned(parked[p][0], true)
+          marked++
+        }
+      }
+    }
+    return marked
+  }
+
   function unownedInBuild() {
     var missing = []
     var lists = adapter.lists || []
@@ -2614,7 +2642,7 @@
     chip.append(
       $('<span class="sp-status__missing"></span>')
         .text(missing.length + (missing.length === 1 ? ' item' : ' items') + " you don't own")
-        .attr('title', missing.join('\n'))
+        .attr('title', missing.join('\n') + '\n\nClick to mark all of these as owned.')
     )
   }
 
@@ -2680,6 +2708,17 @@
     if (!host.length) return
     $('<div id="sp-status" class="sp-status"></div>')
       .appendTo(host)
+      .on('click', '.sp-status__missing', function (event) {
+        /* Its own action - the chip behind it opens the comparison. */
+        event.stopPropagation()
+        var marked = markEquippedOwned()
+        syncOwnedButton()
+        updateStatus()
+        if ($('#browse-drawer').length) renderBrowse()
+        /* Not "equipped": parked slots are counted too, since you own what is in them - it is
+           just not on you at the moment. */
+        toast(marked ? 'Marked ' + marked + ' items as owned' : 'Nothing left to mark')
+      })
       .on('click', function () {
         var entry = savedEntry()
         if (!entry) {

@@ -125,7 +125,9 @@ pieces, 305 weapons, 115 rings and 105 spells:
   single piece.)
 * **Bulk marking in the browser** — search, then *Mark all shown*.
 
-The status line quietly notes when a build uses something you have not marked. Owned state is per
+The status line quietly notes when a build uses something you have not marked — and clicking that
+note marks the lot in one go, which is the quickest way to catch up after loading a build that
+came from a link or from your last session. Owned state is per
 game, kept beside your builds, and deliberately never travels in a share link: it describes you,
 not the build.
 
