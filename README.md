@@ -94,6 +94,18 @@ the one you see once the weapon is equipped.
 For Dark Souls 3, a piece's poise and absorption are its own contribution — pieces combine
 multiplicatively rather than adding, which is how the planner totals them.
 
+### Browsing a slot properly
+
+A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The
+table button in the toolbar opens every item for a slot as a sortable table — the same numbers as
+the dropdown, plus derived columns a dropdown cannot show, **poise per weight** being the one that
+usually settles it.
+
+Pick the slot from inside the browser, so you can flick between them while comparing. Sort by any
+column, search by name, or tick **Only what fits** to hide anything heavier than your remaining
+equip load — counting the slot's current item, since equipping replaces rather than adds. Clicking
+a row equips it and leaves the table open, so you can try a few against each other.
+
 ### Undo
 
 The undo and redo buttons in the toolbar step through your last 50 changes, as do `Ctrl`+`Z` and

@@ -1518,6 +1518,7 @@
         $(groups[g].selector).each(function () {
           retemplate($(this), kind)
           attachPreview($(this), extras)
+          if (BROWSE_COLUMNS[kind]) registerBrowseSlot($(this).attr('id'), kind)
         })
       })(groups[g].kind, groups[g].extras || [])
     }
@@ -1678,6 +1679,179 @@
       window.clearTimeout(timer)
       hidePreview()
     })
+  }
+
+  /* --------------------------------------------------------------- item browser */
+
+  /* A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight".
+     This is the same data as the dropdown columns, as a table you can order by any column and
+     filter, including by what still fits in your remaining equip load.
+
+     One entry point in the toolbar rather than a button on all fourteen slots, with the slot
+     chosen inside - which also means you can flick between slots while comparing. */
+
+  var browseSlots = []
+  var browseState = { slot: null, sort: { key: 'name', dir: 1 }, fits: false }
+
+  var BROWSE_COLUMNS = {
+    armor: [
+      { key: 'name', label: 'Name', text: true },
+      { key: 'weight', label: 'Wt', digits: 1 },
+      { key: 'poise', label: 'Poise', digits: 1 },
+      { key: 'defence', label: 'Def', digits: 1 },
+      { key: 'ratio', label: 'Poise/wt', digits: 2 }
+    ],
+    weapon: [
+      { key: 'name', label: 'Name', text: true },
+      { key: 'weight', label: 'Wt', digits: 1 },
+      { key: 'strength', label: 'Str', digits: 0, requirement: true },
+      { key: 'dexterity', label: 'Dex', digits: 0, requirement: true },
+      { key: 'intelligence', label: 'Int', digits: 0, requirement: true },
+      { key: 'faith', label: 'Fth', digits: 0, requirement: true }
+    ],
+    ring: [
+      { key: 'name', label: 'Name', text: true },
+      { key: 'weight', label: 'Wt', digits: 1 },
+      { key: 'effect', label: 'Effect', text: true }
+    ]
+  }
+
+  function registerBrowseSlot(id, kind) {
+    browseSlots.push({ id: id, kind: kind, label: slotLabel(id) })
+  }
+
+  /* Everything the slot offers, enriched with the same accessors the dropdown columns use. */
+  function browseRows(slot) {
+    var $select = $('#' + slot.id)
+    var empty = emptyValue($select)
+    var rows = []
+
+    $select.find('option').each(function () {
+      var value = this.value
+      if (value === empty || value === '-1') return
+      var info = askInfo(slot.kind, value, slot.id)
+      if (!info) return
+
+      var row = { value: value, name: $(this).text(), weight: info.weight }
+      if (slot.kind === 'armor') {
+        row.poise = info.poise
+        row.defence = info.defence
+        row.ratio = info.weight ? info.poise / info.weight : 0
+      } else if (slot.kind === 'weapon') {
+        var req = info.req || {}
+        row.strength = req.strength || 0
+        row.dexterity = req.dexterity || 0
+        row.intelligence = req.intelligence || 0
+        row.faith = req.faith || 0
+      } else if (slot.kind === 'ring') {
+        row.effect = (info.effects || []).join(' ')
+      }
+      rows.push(row)
+    })
+    return rows
+  }
+
+  /* What you could still put in this slot: whatever is left over, plus whatever the slot is
+     already carrying, since equipping something replaces it rather than adding to it. */
+  function weightBudget(slot) {
+    var left = leadingNumber($('#weight-left').val() || $('#weight-left').text())
+    if (left === null) return null
+    var current = askInfo(slot.kind, $('#' + slot.id).val(), slot.id)
+    return left + (current && current.weight ? current.weight : 0)
+  }
+
+  function renderBrowse() {
+    var slot = browseState.slot
+    if (!slot) return
+    var pane = $('#builds-drawer .sp-pane--browse')
+    var columns = BROWSE_COLUMNS[slot.kind]
+    var term = ($('#builds-drawer .sp-browse__search').val() || '').toLowerCase()
+    var budget = browseState.fits ? weightBudget(slot) : null
+    var equipped = $('#' + slot.id).val()
+
+    var rows = browseRows(slot).filter(function (row) {
+      if (term && row.name.toLowerCase().indexOf(term) === -1) return false
+      if (budget !== null && row.weight > budget) return false
+      return true
+    })
+
+    var sort = browseState.sort
+    rows.sort(function (a, b) {
+      var x = a[sort.key]
+      var y = b[sort.key]
+      if (typeof x === 'string' || typeof y === 'string') {
+        x = String(x).toLowerCase()
+        y = String(y).toLowerCase()
+        return x < y ? -sort.dir : x > y ? sort.dir : 0
+      }
+      return ((x || 0) - (y || 0)) * sort.dir
+    })
+
+    var table = $('<table class="sp-browse"></table>')
+    var head = $('<tr></tr>')
+    for (var c = 0; c < columns.length; c++) {
+      var col = columns[c]
+      $('<th></th>')
+        .text(col.label + (sort.key === col.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''))
+        .attr('data-sort', col.key)
+        .toggleClass('sp-browse__sorted', sort.key === col.key)
+        .appendTo(head)
+    }
+    table.append(head)
+
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r]
+      var tr = $('<tr class="sp-browse__row"></tr>').attr('data-value', row.value)
+      if (row.value === equipped) tr.addClass('sp-browse__row--equipped')
+      for (var i = 0; i < columns.length; i++) {
+        var column = columns[i]
+        var value = row[column.key]
+        var cell = $('<td></td>')
+        if (column.text) {
+          cell.text(value === undefined ? '' : value)
+        } else {
+          cell.text(value === undefined || value === null ? '–' : Number(value).toFixed(column.digits))
+          if (column.requirement && value && totalStat(column.key) < value) cell.addClass('sp-browse__short')
+        }
+        tr.append(cell)
+      }
+      table.append(tr)
+    }
+
+    pane.find('.sp-browse__count').text(rows.length + (rows.length === 1 ? ' item' : ' items'))
+    pane.find('.sp-browse__body').empty().append(table)
+    pane.find('.sp-browse__fits').prop('disabled', weightBudget(slot) === null)
+  }
+
+  function openBrowse(slot) {
+    if (!$('#builds-drawer').length) buildDrawer()
+    browseState.slot = slot || browseState.slot || browseSlots[0]
+    if (!browseState.slot) return
+
+    $('#builds-drawer').addClass('sp-drawer--open sp-drawer--browse').attr('aria-hidden', 'false')
+    $('#builds-drawer .sp-pane--list, #builds-drawer .sp-pane--compare').hide()
+    $('#builds-drawer .sp-drawer__foot').hide()
+    $('#builds-drawer .sp-pane--browse').show()
+
+    var picker = $('#builds-drawer .sp-browse__slot').empty()
+    for (var i = 0; i < browseSlots.length; i++) {
+      picker.append(
+        $('<option></option>').attr('value', browseSlots[i].id).text(browseSlots[i].label)
+      )
+    }
+    picker.val(browseState.slot.id)
+    renderBrowse()
+  }
+
+  function closeBrowse() {
+    $('#builds-drawer').removeClass('sp-drawer--browse')
+    $('#builds-drawer .sp-pane--browse').hide()
+    showList()
+  }
+
+  function slotById(id) {
+    for (var i = 0; i < browseSlots.length; i++) if (browseSlots[i].id === id) return browseSlots[i]
+    return null
   }
 
   /* ------------------------------------------------------------------- status */
@@ -2091,6 +2265,18 @@
       '<p class="sp-empty">No saved builds yet. Use the save button to keep this one.</p>' +
       '</div>' +
       '<div class="sp-pane sp-pane--compare"></div>' +
+      '<div class="sp-pane sp-pane--browse">' +
+      '<button type="button" class="sp-back sp-browse__back">&larr; Back to builds</button>' +
+      '<div class="sp-browse__controls">' +
+      '<select class="sp-browse__slot"></select>' +
+      '<input type="search" class="sp-browse__search" placeholder="Search" />' +
+      '<label class="sp-browse__fits-label">' +
+      '<input type="checkbox" class="sp-browse__fits" /> Only what fits' +
+      '</label>' +
+      '<span class="sp-browse__count"></span>' +
+      '</div>' +
+      '<div class="sp-browse__body"></div>' +
+      '</div>' +
       '</div>' +
       '<footer class="sp-drawer__foot">' +
       '<button class="default" id="builds-drawer__save-as">Save current as new</button>' +
@@ -2181,7 +2367,41 @@
       runCompare(picked[0], picked[1])
     })
 
-    el.on('click', '.sp-back', showList)
+    el.on('click', '.sp-browse__back', closeBrowse)
+    el.on('click', '.sp-back:not(.sp-browse__back)', showList)
+
+    el.on('change', '.sp-browse__slot', function () {
+      var slot = slotById($(this).val())
+      if (slot) {
+        browseState.slot = slot
+        browseState.sort = { key: 'name', dir: 1 }
+        renderBrowse()
+      }
+    })
+
+    el.on('input', '.sp-browse__search', renderBrowse)
+    el.on('change', '.sp-browse__fits', function () {
+      browseState.fits = $(this).is(':checked')
+      renderBrowse()
+    })
+
+    el.on('click', '.sp-browse th[data-sort]', function () {
+      var key = $(this).attr('data-sort')
+      if (browseState.sort.key === key) browseState.sort.dir = -browseState.sort.dir
+      else browseState.sort = { key: key, dir: key === 'name' ? 1 : -1 }
+      renderBrowse()
+    })
+
+    /* Equip in place and stay open, so you can try a few against each other. */
+    el.on('click', '.sp-browse__row', function () {
+      var slot = browseState.slot
+      if (!slot) return
+      $('#' + slot.id)
+        .val($(this).attr('data-value'))
+        .trigger('change.select2')
+        .trigger('change')
+      renderBrowse()
+    })
 
     el.find('#builds-drawer__save-as').on('click', function () {
       if (saveCurrent(true)) renderRows()
@@ -2311,6 +2531,8 @@
   }
 
   function closeDrawer() {
+    $('#builds-drawer').removeClass('sp-drawer--browse')
+    $('#builds-drawer .sp-pane--browse').hide()
     showList()
     $('#builds-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
     $('#sp-button-builds').removeClass('sp-button--active')
@@ -2327,6 +2549,13 @@
 
     /* Separates the planner's own actions from the ones this adds. */
     $('<span class="sp-toolbar__sep"></span>').appendTo(options)
+
+    $('<button type="button" class="material-icons" id="sp-button-browse" title="Browse and compare everything for a slot">table_rows</button>')
+      .on('click', function () {
+        if ($('#builds-drawer').hasClass('sp-drawer--browse')) closeBrowse()
+        else openBrowse()
+      })
+      .appendTo(options)
 
     $('<button type="button" class="material-icons" id="sp-button-undo" title="Undo (Ctrl+Z)">undo</button>')
       .on('click', function () {

@@ -864,3 +864,107 @@
   background: 0 0;
   color: #ccc;
 }
+
+/* -------------------------------------------------------------------- item browser */
+
+/* Wider than the compare view: a sortable table needs the room, and this is the one place you
+   are reading across many rows at once. */
+.sp-drawer--browse {
+  width: 780px;
+}
+
+.sp-browse__controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0 10px;
+}
+
+.sp-browse__controls select,
+.sp-browse__controls input[type='search'] {
+  border: 1px solid #ccc;
+  padding: 3px 6px;
+}
+
+.sp-browse__controls input[type='search'] {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.sp-browse__fits-label {
+  color: #555;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sp-browse__count {
+  color: #777;
+  font-size: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sp-browse {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.sp-browse th {
+  border-bottom: 1px solid #ccc;
+  color: #555;
+  cursor: pointer;
+  font-weight: 400;
+  padding: 3px 6px 4px;
+  position: sticky;
+  text-align: right;
+  top: 0;
+  background: #f8f8ff;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sp-browse th:first-child,
+.sp-browse td:first-child {
+  text-align: left;
+}
+
+.sp-browse th:hover {
+  color: #111;
+}
+
+.sp-browse__sorted {
+  color: #069;
+  font-weight: 700;
+}
+
+.sp-browse td {
+  border-bottom: 1px solid #eee;
+  padding: 3px 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sp-browse td:first-child {
+  white-space: normal;
+}
+
+.sp-browse__row {
+  cursor: pointer;
+}
+
+.sp-browse__row:hover td {
+  background: #eef3f7;
+}
+
+.sp-browse__row--equipped td {
+  background: #fdf6e3;
+  font-weight: 700;
+}
+
+/* A requirement you do not meet, same language as the dropdown columns. */
+.sp-browse__short {
+  color: #a33;
+  font-weight: 700;
+}
