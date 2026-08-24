@@ -419,10 +419,65 @@
     return $('#sp-slot-' + id).add('label[for="sp-slot-' + id + '"]')
   }
 
+  /* Which reinforce and infusion dropdowns belong to a slot, recorded when the toggles are built
+     so the parked display can reach them without every caller passing them along. */
+  var slotSuffixes = {}
+
+  /* What each of a slot's dropdowns said at the moment it was parked. Kept apart from `parked`,
+     which is serialised into saved builds and share links and must keep its shape. A build arriving
+     from a link has no labels, so the display falls back to looking the values up. */
+  var parkedLabels = {}
+
+  function paintParked($select, text) {
+    var $rendered = $select.next('.select2-container').find('.select2-selection__rendered')
+    if (!$rendered.length) return
+
+    if (text === null) {
+      /* Nothing to put back by hand: unparking sets a real value and select2 redraws from it. */
+      $rendered.removeClass('sp-parked-name')
+      return
+    }
+    $rendered.addClass('sp-parked-name').text(text).attr('title', text)
+  }
+
+  /* A parked slot used to fall back to the dropdown's "Naked" placeholder, which threw away the
+     one thing you were looking at: what is in the slot you are doing without. The planner still
+     gets an empty value - that is the entire point of parking - but the name stays on screen,
+     greyed and struck through, so the slot reads as "this, switched off" rather than as empty.
+     The reinforce and infusion beside it are shown the same way, since a weapon at +5 parked as a
+     bare +0 loses half of what you were looking at. */
+  function showParkedName(id, $select, values) {
+    var labels = parkedLabels[id]
+    var suffixes = slotSuffixes[id] || []
+
+    paintParked($select, values ? (labels && labels[0]) || optionText($select, values[0]) || null : null)
+
+    for (var i = 0; i < suffixes.length; i++) {
+      var $extra = $('#' + id + suffixes[i])
+      if (!$extra.length) continue
+      var text = null
+      if (values) {
+        text = (labels && labels[i + 1]) || optionText($extra, values[i + 1]) || null
+      }
+      paintParked($extra, text)
+    }
+  }
+
+  /* Emptying the slot makes the planner rebuild its reinforce and infusion lists, and select2
+     redraws them by rewriting the same rendered element - which lands after the paint above and
+     puts "+0" back over the "+10" we just wrote. It keeps the class, so only the text is lost.
+     Re-painting when those dropdowns change catches every redraw the planner announces, and the
+     deferred pass catches the rest. Neither fires a change event, so this cannot loop. */
+  function repaintParked(id) {
+    if (!parked[id]) return
+    showParkedName(id, $('#' + id), parked[id])
+  }
+
   function markParked(id) {
     var $select = $('#' + id)
     var values = parked[id]
     $select.closest('.sp-slot').toggleClass('sp-slot--parked', !!values)
+    showParkedName(id, $select, values)
     if (values) {
       toggleUi(id).attr('title', 'Parked: ' + (optionText($select, values[0]) || 'this slot') + ' - re-check to put it back')
     } else {
@@ -433,18 +488,29 @@
   function parkSlot(id, suffixes) {
     var $select = $('#' + id)
     var values = [$select.val()]
-    for (var i = 0; i < suffixes.length; i++) values.push($('#' + id + suffixes[i]).val())
+    /* Read the labels off the page before anything is cleared - once the weapon goes the planner
+       rebuilds its reinforce and infusion lists, and "+5" may no longer be in there to look up. */
+    var labels = [optionText($select, values[0])]
+
+    for (var i = 0; i < suffixes.length; i++) {
+      var $extra = $('#' + id + suffixes[i])
+      values.push($extra.val())
+      labels.push(optionText($extra, $extra.val()))
+    }
     parked[id] = values
+    parkedLabels[id] = labels
 
     applying = true
     $select.val(emptyValue($select)).trigger('change.select2').trigger('change')
     applying = false
     markParked(id)
+    window.setTimeout(function () { repaintParked(id) }, 0)
   }
 
   function unparkSlot(id, suffixes) {
     var values = parked[id]
     delete parked[id]
+    delete parkedLabels[id]
     if (!values) return markParked(id)
 
     applying = true
@@ -467,6 +533,17 @@
 
   function buildToggles() {
     eachSlot(function ($select, id, suffixes) {
+      slotSuffixes[id] = suffixes
+
+      /* jshint loopfunc:true */
+      ;(function (slotId) {
+        for (var i = 0; i < suffixes.length; i++) {
+          $('#' + slotId + suffixes[i]).on('change', function () {
+            window.setTimeout(function () { repaintParked(slotId) }, 0)
+          })
+        }
+      })(id)
+
       var cell = $select.closest('.wrapper-protector, .wrapper-weapon')
       var container = cell.length ? cell : $select.parent()
       var toggleId = 'sp-slot-' + id
@@ -1535,6 +1612,12 @@
         })
       })(groups[g].kind, groups[g].extras || [])
     }
+
+    /* Re-templating destroys and rebuilds select2, which redraws the placeholder over any parked
+       name already on screen. */
+    for (var id in parked) {
+      if (Object.prototype.hasOwnProperty.call(parked, id)) markParked(id)
+    }
   }
 
   /* --------------------------------------------------------------- what-if preview */
@@ -1729,6 +1812,53 @@
     ]
   }
 
+  var BROWSE_GROUPS = { armor: 'Armor', weapon: 'Weapons', ring: 'Rings', spell: 'Spells' }
+
+  /* The picker was a flat list of fourteen slot names and nothing else, so choosing the slot you
+     meant involved remembering which of LH1 and RH2 currently holds the shield. It now groups them
+     by what they take and says what is in each one. */
+  /* Coalesced: scrubbing a stat with the arrow buttons fires a change per step, and the table can
+     be three hundred rows. One redraw per burst rather than one per event. */
+  var browseRefreshTimer = null
+
+  function scheduleBrowseRefresh() {
+    if (!browseIsOpen()) return
+    if (browseRefreshTimer) window.clearTimeout(browseRefreshTimer)
+    browseRefreshTimer = window.setTimeout(function () {
+      browseRefreshTimer = null
+      if (!browseIsOpen()) return
+      renderSlotPicker()
+      renderBrowse()
+    }, 60)
+  }
+
+  function renderSlotPicker() {
+    var picker = $('#browse-drawer .sp-browse__slot')
+    if (!picker.length) return
+    picker.empty()
+
+    var groups = {}
+    for (var i = 0; i < browseSlots.length; i++) {
+      var slot = browseSlots[i]
+      var name = BROWSE_GROUPS[slot.kind] || 'Other'
+      if (!groups[name]) groups[name] = $('<optgroup></optgroup>').attr('label', name).appendTo(picker)
+
+      var $select = $('#' + slot.id)
+      var held
+      if (parked[slot.id]) {
+        held = (optionText($select, parked[slot.id][0]) || 'something') + ' (parked)'
+      } else {
+        var value = $select.val()
+        held = value && value !== '-1' && value !== emptyValue($select) ? optionText($select, value) : 'empty'
+      }
+
+      groups[name].append(
+        $('<option></option>').attr('value', slot.id).text(slot.label + ' · ' + held)
+      )
+    }
+    if (browseState.slot) picker.val(browseState.slot.id)
+  }
+
   function registerBrowseSlot(id, kind) {
     browseSlots.push({ id: id, kind: kind, label: slotLabel(id) })
   }
@@ -1804,6 +1934,7 @@
     var table = $('<table class="sp-browse"></table>')
     var head = $('<tr></tr>')
     $('<th class="sp-browse__own-head" title="Mark what you have"></th>').text('Own').appendTo(head)
+    $('<th class="sp-browse__equip-head"></th>').appendTo(head)
     for (var c = 0; c < columns.length; c++) {
       var col = columns[c]
       $('<th></th>')
@@ -1827,7 +1958,19 @@
           $('<button type="button" class="sp-browse__set" title="Own the whole set">set</button>')
         )
       }
+      /* Equipping is its own button rather than the whole row being clickable. A row-wide click
+         did two things at once - put the item in the slot and, through the mark-what-you-equip
+         rule, add it to your inventory - with nothing on screen saying either would happen, and
+         no way to sort or read a row without triggering both. */
       ownCell.appendTo(tr)
+      $('<td class="sp-browse__equip-cell"></td>')
+        .append(
+          $('<button type="button" class="sp-browse__equip"></button>')
+            .text(row.value === equipped ? 'Equipped' : 'Equip')
+            .attr('title', row.value === equipped ? 'Already in this slot' : 'Put this in ' + slot.label)
+            .prop('disabled', row.value === equipped)
+        )
+        .appendTo(tr)
       for (var i = 0; i < columns.length; i++) {
         var column = columns[i]
         var value = row[column.key]
@@ -1867,7 +2010,9 @@
       '</header>' +
       '<div class="sp-drawer__body">' +
       '<div class="sp-browse__controls">' +
+      '<label class="sp-browse__slot-label">Slot' +
       '<select class="sp-browse__slot"></select>' +
+      '</label>' +
       '<input type="search" class="sp-browse__search" placeholder="Search" />' +
       '<label class="sp-browse__fits-label">' +
       '<input type="checkbox" class="sp-browse__fits" /> Only what fits' +
@@ -1951,14 +2096,14 @@
     })
 
     /* Equip in place and stay open, so you can try a few against each other. */
-    el.on('click', '.sp-browse__row', function () {
+    el.on('click', '.sp-browse__equip', function () {
       var slot = browseState.slot
       if (!slot) return
       $('#' + slot.id)
-        .val($(this).attr('data-value'))
+        .val($(this).closest('.sp-browse__row').attr('data-value'))
         .trigger('change.select2')
         .trigger('change')
-      renderBrowse()
+      /* The change above is what redraws this table, through scheduleBrowseRefresh. */
     })
 
     $(document).on('keydown', function (event) {
@@ -1970,6 +2115,50 @@
 
   function shareIsOpen() {
     return $('#share-drawer').hasClass('sp-drawer--open')
+  }
+
+  /* The tips were the last thing on a page that is several screens long, under the calculators
+     links, which is a strange place for the notes explaining how the planner works. They move into
+     a panel of their own so they are one click from the top, and the block at the bottom goes -
+     the content is adopted rather than copied, so there is only ever one of it. */
+  function buildTipsDrawer() {
+    var $source = $('.planner .planner-tips')
+    var $list = $source.children('ul')
+    if (!$list.length) return false
+
+    var markup =
+      '<aside id="tips-drawer" class="sp-drawer" aria-hidden="true">' +
+      '<header class="sp-drawer__head">' +
+      '<h2>Tips</h2>' +
+      '<button type="button" class="sp-drawer__close" title="Close (Esc)" aria-label="Close">&times;</button>' +
+      '</header>' +
+      '<div class="sp-drawer__body"><p class="sp-tips__hint">How this planner expects to be ' +
+      'used - written by the original site, kept as it was.</p></div>' +
+      '</aside>'
+
+    var el = $(markup).appendTo(document.body)
+    el.find('.sp-drawer__close').on('click', closeTips)
+    el.find('.sp-drawer__body').append($list)
+    $source.remove()
+    return true
+  }
+
+  function tipsIsOpen() {
+    return $('#tips-drawer').hasClass('sp-drawer--open')
+  }
+
+  function openTips() {
+    if (!$('#tips-drawer').length) return
+    closeDrawer()
+    closeBrowse()
+    closeShare()
+    $('#tips-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
+    setPanelOpen('sp-button-tips', 'tips-drawer', true)
+  }
+
+  function closeTips() {
+    $('#tips-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
+    setPanelOpen('sp-button-tips', 'tips-drawer', false)
   }
 
   function buildShareDrawer() {
@@ -2035,6 +2224,7 @@
     if (!$('#share-drawer').length) buildShareDrawer()
     closeDrawer()
     closeBrowse()
+    closeTips()
 
     shareSummary = buildSummary()
     var canvas = drawCard(shareSummary)
@@ -2043,12 +2233,12 @@
     $('#share-drawer .sp-share__preview').empty().append(canvas)
 
     $('#share-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
-    $('#sp-button-image').addClass('sp-button--active')
+    setPanelOpen('sp-button-image', 'share-drawer', true)
   }
 
   function closeShare() {
     $('#share-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
-    $('#sp-button-image').removeClass('sp-button--active')
+    setPanelOpen('sp-button-image', 'share-drawer', false)
   }
 
   function browseIsOpen() {
@@ -2060,24 +2250,21 @@
     browseState.slot = slot || browseState.slot || browseSlots[0]
     if (!browseState.slot) return
 
-    /* All three are anchored to the same edge, so only one is up at a time. */
+    /* They are all anchored to the same edge, so only one is up at a time. */
     closeDrawer()
     closeShare()
+    closeTips()
 
-    var picker = $('#browse-drawer .sp-browse__slot').empty()
-    for (var i = 0; i < browseSlots.length; i++) {
-      picker.append($('<option></option>').attr('value', browseSlots[i].id).text(browseSlots[i].label))
-    }
-    picker.val(browseState.slot.id)
+    renderSlotPicker()
 
     $('#browse-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
-    $('#sp-button-browse').addClass('sp-button--active')
+    setPanelOpen('sp-button-browse', 'browse-drawer', true)
     renderBrowse()
   }
 
   function closeBrowse() {
     $('#browse-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
-    $('#sp-button-browse').removeClass('sp-button--active')
+    setPanelOpen('sp-button-browse', 'browse-drawer', false)
   }
 
   function slotById(id) {
@@ -2480,27 +2667,15 @@
   }
 
   /* The slots whose contents are things you can own - the same families the browser covers. */
-  function ownableSelectors() {
-    var lists = adapter.lists || []
-    var out = []
-    for (var i = 0; i < lists.length; i++) {
-      if (['armor', 'weapons', 'rings', 'spells'].indexOf(lists[i].key) === -1) continue
-      out.push(lists[i].selector)
-    }
-    return out.join(', ')
-  }
+  /* Equipping does not mark anything as owned. It used to - it was the cheapest way to fill the
+     list in - but the two are simply not the same claim: planning around a weapon you are working
+     towards, or trying a set to see what it would weigh, is the ordinary case, and it would quietly
+     tell you that you owned it. Owning is now always something you say, never something inferred
+     from what is in a slot.
 
-  /* Equipping something is the cheapest possible way to say you have it. */
-  function noteEquipped($select) {
-    var value = $select.val()
-    if (!value || value === '-1' || value === emptyValue($select)) return
-    if (isOwned(value)) return
-    setOwned(value, true)
-  }
-
-  /* Catching up in one go. Only explicit equips mark items, so a build arriving from a link or
-     from the autosave starts out looking like gear you do not have - which is correct for someone
-     else's build, and merely tedious for your own. */
+     Which leaves this: marking everything the build currently uses, in one go, when that is what
+     you actually mean. It is offered from the status line whenever a build wears something
+     unmarked, and it covers the case the automatic rule was there for. */
   function markEquippedOwned() {
     var marked = 0
     var lists = adapter.lists || []
@@ -2573,14 +2748,17 @@
   }
 
   function syncOwnedButton() {
-    $('#sp-button-owned')
+    var $button = $('#sp-button-owned')
+    $button
       .toggleClass('sp-button--active', ownedFilter)
+      .attr('aria-pressed', ownedFilter ? 'true' : 'false')
       .attr(
         'title',
         ownedFilter
           ? 'Showing only what you own (' + ownedCount() + ' marked) - click to show everything'
           : 'Show only items you own (' + ownedCount() + ' marked)'
       )
+    $button.find('.material-icons').first().text(ownedFilter ? 'toggle_on' : 'toggle_off')
   }
 
   function toggleOwnedFilter() {
@@ -2637,13 +2815,51 @@
 
   /* Quiet, not a warning: planning around something you have not picked up yet is a normal thing
      to do, and the tool should not nag about it. */
+  /* The status was one run-on sentence: a bare dot, the build name, a count, a list of field
+     names and a note about unowned gear, all the same size and colour, with two different things
+     happening depending on where in it you clicked and nothing saying so. It is now a state chip
+     that names its own state, the build it refers to, and the actions as actual buttons. */
+  var STATUS_STATES = {
+    draft: { icon: 'radio_button_unchecked', word: 'Draft' },
+    saved: { icon: 'check_circle', word: 'Saved' },
+    dirty: { icon: 'edit', word: 'Unsaved' }
+  }
+
+  function statusState(kind, title) {
+    var look = STATUS_STATES[kind]
+    return $('<span class="sp-status__state"></span>')
+      .attr('title', title)
+      .append($('<i class="material-icons"></i>').text(look.icon))
+      .append($('<span></span>').text(look.word))
+  }
+
+  function statusAction(label, title, handler) {
+    return $('<button type="button" class="sp-status__action"></button>')
+      .text(label)
+      .attr('title', title)
+      .on('click', handler)
+  }
+
+  /* Its own line with its own button: what you own has nothing to do with whether the build is
+     saved, and the two were sharing a sentence. */
   function noteMissing(chip, missing) {
     if (!missing.length) return
-    chip.append(
-      $('<span class="sp-status__missing"></span>')
-        .text(missing.length + (missing.length === 1 ? ' item' : ' items') + " you don't own")
-        .attr('title', missing.join('\n') + '\n\nClick to mark all of these as owned.')
-    )
+
+    $('<div class="sp-status__line sp-status__missing"></div>')
+      .append($('<i class="material-icons"></i>').text('error_outline'))
+      .append(
+        $('<span></span>')
+          .text(missing.length + (missing.length === 1 ? ' item' : ' items') + " in this build you have not marked as owned")
+          .attr('title', missing.join('\n'))
+      )
+      .append(statusAction('Mark them owned', 'Add all of them to your inventory', function () {
+        var marked = markEquippedOwned()
+        syncOwnedButton()
+        updateStatus()
+        if ($('#browse-drawer').length) renderBrowse()
+        toast(marked ? 'Marked ' + marked + ' items as owned' : 'Nothing left to mark')
+      }))
+      .appendTo(chip)
   }
 
   function updateStatus() {
@@ -2653,54 +2869,79 @@
     var entry = savedEntry()
     var missing = unownedInBuild()
     updateDescription(entry)
-    chip.removeClass('sp-status--draft sp-status--saved sp-status--dirty')
+    chip.removeClass('sp-status--draft sp-status--saved sp-status--dirty').empty()
+
+    var line = $('<div class="sp-status__line"></div>').appendTo(chip)
 
     if (!entry) {
-      chip
-        .addClass('sp-status--draft')
-        .attr('title', 'This build is only in your browser and the link. Click to give it a name.')
-        .html('<span class="sp-status__dot">○</span> Unsaved draft')
+      chip.addClass('sp-status--draft')
+      line
+        .append(statusState('draft', 'Kept in this browser and in the address bar, but not under a name'))
+        .append($('<span class="sp-status__name"></span>').text('This build has no name yet'))
+        .append(statusAction('Save it', 'Give this build a name (Ctrl+S)', function () {
+          saveCurrent(false)
+          updateStatus()
+        }))
       noteMissing(chip, missing)
       document.title = baseTitle
       return
     }
 
     var changes = diffBuilds(stateOf(entry), currentState())
+
     if (!changes.length) {
-      chip
-        .addClass('sp-status--saved')
-        .attr('title', 'Saved ' + relativeTime(entry.updatedAt))
-        .html('<span class="sp-status__dot">●</span> ')
-        .append($('<span></span>').text(entry.name))
-        .append(document.createTextNode(' · saved'))
+      chip.addClass('sp-status--saved')
+      line
+        .append(statusState('saved', 'Matches the build you saved'))
+        .append($('<span class="sp-status__name"></span>').text(entry.name))
+        .append($('<span class="sp-status__when"></span>').text('saved ' + relativeTime(entry.updatedAt)))
+        .append(statusAction('Your builds', 'Load, rename or compare your saved builds', openDrawer))
       noteMissing(chip, missing)
       document.title = baseTitle
       return
     }
 
     /* Naming the fields is the difference between "something changed" and knowing whether you
-       still care. The full before/after goes in the tooltip, and clicking still opens the
-       side-by-side. */
+       still care. The full before/after stays in the tooltip. */
     var names = []
     var detail = []
     for (var c = 0; c < changes.length; c++) {
       names.push(changes[c].label)
-      detail.push(changes[c].label + ': ' + changes[c].a + ' → ' + changes[c].b)
+      detail.push(changes[c].label + ': ' + changes[c].a + ' \u2192 ' + changes[c].b)
     }
 
     var shown = names.slice(0, 3).join(', ')
     if (names.length > 3) shown += ' +' + (names.length - 3) + ' more'
 
-    chip
-      .addClass('sp-status--dirty')
-      .attr('title', detail.join('\n') + '\n\nClick to compare with the saved build. Ctrl+S saves.')
-      .html('<span class="sp-status__dot">●</span> ')
-      .append($('<span></span>').text(entry.name))
-      .append(document.createTextNode(' · ' + changes.length + (changes.length === 1 ? ' unsaved change' : ' unsaved changes')))
-      .append($('<span class="sp-status__fields"></span>').text(shown))
+    chip.addClass('sp-status--dirty')
+    line
+      .append(statusState('dirty', 'Differs from the build you saved'))
+      .append($('<span class="sp-status__name"></span>').text(entry.name))
+      .append(
+        $('<span class="sp-status__count"></span>')
+          .text(changes.length + (changes.length === 1 ? ' change' : ' changes'))
+      )
+      .append(statusAction('Save', 'Overwrite ' + entry.name + ' (Ctrl+S)', function () {
+        saveCurrent(true)
+        updateStatus()
+      }))
+      .append(statusAction('See what changed', 'Compare this against the saved build', function () {
+        openDrawer()
+        runCompare(
+          { name: entry.name + ' (saved)', state: stateOf(entry) },
+          { name: 'Current build', state: currentState() }
+        )
+      }))
+
+    $('<div class="sp-status__line sp-status__fields"></div>')
+      .attr('title', detail.join('\n'))
+      .append($('<span class="sp-status__fields-label"></span>').text('Changed'))
+      .append($('<span></span>').text(shown))
+      .appendTo(chip)
+
     noteMissing(chip, missing)
     /* Visible in the tab strip, which matters when several planners are open at once. */
-    document.title = '● ' + baseTitle
+    document.title = '\u25cf ' + baseTitle
   }
 
   /* ----------------------------------------------------------------- compare */
@@ -2847,7 +3088,10 @@
 
   /* head -> Head, ring-1 -> Ring 1, rh1 -> RH1, spell-12 -> Spell 12 */
   function slotLabel(id) {
-    if (/^[lr]h\d$/.test(id)) return id.toUpperCase()
+    /* "LH1" is the planner's own shorthand, and it is opaque anywhere the slot is named on its
+       own - a picker, a share card, the readout for an assistant. */
+    var hand = id.match(/^([lr])h(\d)$/)
+    if (hand) return (hand[1] === 'l' ? 'Left hand ' : 'Right hand ') + hand[2]
     return id
       .replace(/-/g, ' ')
       .replace(/(\d+)/, ' $1')
@@ -3208,19 +3452,20 @@
   function openDrawer() {
     closeBrowse()
     closeShare()
+    closeTips()
     if (!$('#builds-drawer').length) {
       buildDrawer()
       $('#builds-drawer .sp-sort').val(store.get(KEY_SORT, 'recent'))
     }
     renderRows()
     $('#builds-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
-    $('#sp-button-builds').addClass('sp-button--active')
+    setPanelOpen('sp-button-builds', 'builds-drawer', true)
   }
 
   function closeDrawer() {
     showList()
     $('#builds-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
-    $('#sp-button-builds').removeClass('sp-button--active')
+    setPanelOpen('sp-button-builds', 'builds-drawer', false)
   }
 
   function toggleDrawer() {
@@ -3237,34 +3482,79 @@
     {
       name: 'build',
       buttons: [
-        { adopt: 'button-new', icon: 'add', label: 'New', title: 'Start a fresh build in a new tab' },
-        { adopt: 'button-reset', icon: 'refresh', label: 'Reset', title: 'Clear this build and start over' },
-        { id: 'sp-button-undo', icon: 'undo', label: 'Undo', title: 'Undo (Ctrl+Z)', action: function () { stepHistory(-1) } },
-        { id: 'sp-button-redo', icon: 'redo', label: 'Redo', title: 'Redo (Ctrl+Shift+Z)', action: function () { stepHistory(1) } }
+        { adopt: 'button-new', kind: 'action', icon: 'add', label: 'New', title: 'Start a fresh build in a new tab' },
+        { adopt: 'button-reset', kind: 'danger', icon: 'refresh', label: 'Reset', title: 'Clear this build and start over' },
+        { id: 'sp-button-undo', kind: 'action', icon: 'undo', label: 'Undo', title: 'Undo (Ctrl+Z)', action: function () { stepHistory(-1) } },
+        { id: 'sp-button-redo', kind: 'action', icon: 'redo', label: 'Redo', title: 'Redo (Ctrl+Shift+Z)', action: function () { stepHistory(1) } }
       ]
     },
     {
       name: 'saved',
       buttons: [
-        { id: 'sp-button-save', icon: 'save', label: 'Save', title: 'Save this build (Ctrl+S)', action: function () { saveCurrent(false) } },
-        { id: 'sp-button-builds', icon: 'folder', label: 'Builds', title: 'Your saved builds', action: toggleDrawer }
+        { id: 'sp-button-save', kind: 'action', icon: 'save', label: 'Save', title: 'Save this build (Ctrl+S)', action: function () { saveCurrent(false) } },
+        { id: 'sp-button-share', kind: 'action', icon: 'link', label: 'Copy link', title: 'Copy a link to this exact build', action: function () { copyToClipboard(shareUrl(currentState())) } }
       ]
     },
     {
-      name: 'share',
+      name: 'view',
       buttons: [
-        { id: 'sp-button-share', icon: 'link', label: 'Copy link', title: 'Copy a link to this exact build', action: function () { copyToClipboard(shareUrl(currentState())) } },
-        { id: 'sp-button-image', icon: 'image', label: 'Share', title: 'Share as an image, as text, or for an AI assistant', action: function () { if (shareIsOpen()) closeShare(); else openShare() } }
+        /* A switch, not a panel: it stays on across pages and reloads until you turn it off, so it
+           gets a switch's icon rather than the same treatment as a drawer that happens to be
+           open. */
+        { id: 'sp-button-owned', kind: 'switch', icon: 'toggle_off', label: 'Owned only', title: 'Show only items you own', action: toggleOwnedFilter }
       ]
     },
+    /* The three panel buttons sit apart from the rest, over on the side the panels come in from.
+       Where a button is says more about what it does than any glyph on it can: everything on the
+       left happens to your build the moment you click it, everything on the right opens a panel
+       against the right-hand edge. */
     {
-      name: 'items',
+      name: 'panels',
+      side: 'right',
       buttons: [
-        { id: 'sp-button-browse', icon: 'table_rows', label: 'Items', title: 'Browse and compare everything for a slot', action: function () { if (browseIsOpen()) closeBrowse(); else openBrowse() } },
-        { id: 'sp-button-owned', icon: 'inventory_2', label: 'Owned', title: 'Show only items you own', action: toggleOwnedFilter }
+        { id: 'sp-button-builds', kind: 'panel', icon: 'folder', label: 'Builds', title: 'Your saved builds', action: toggleDrawer },
+        { id: 'sp-button-browse', kind: 'panel', icon: 'table_rows', label: 'Items', title: 'Browse and compare everything for a slot', action: function () { if (browseIsOpen()) closeBrowse(); else openBrowse() } },
+        { id: 'sp-button-image', kind: 'panel', icon: 'image', label: 'Share', title: 'Share as an image, as text, or for an AI assistant', action: function () { if (shareIsOpen()) closeShare(); else openShare() } },
+        { id: 'sp-button-tips', kind: 'panel', icon: 'help_outline', label: 'Tips', title: 'How the planner expects to be used', action: function () { if (tipsIsOpen()) closeTips(); else openTips() } }
       ]
     }
   ]
+
+  /* A panel that slides over the button that opened it is a magic trick rather than an interface:
+     press Items and the button - along with most of the planner - disappears underneath 780px of
+     table. So where the window has room the page steps aside instead of being covered, which puts
+     the button right beside the panel it just opened. Where it does not, it overlays as before,
+     because that is all a narrow screen can do. */
+  var pushedDrawer = null
+
+  function layoutForDrawer(drawerId, open) {
+    var root = $('.modal-overlay')
+    var planner = $('.planner')
+    if (!root.length || !planner.length) return
+    var width = open ? $('#' + drawerId).outerWidth() : 0
+    /* Measured, not assumed: the drawers are different widths and the planner is a fixed 958px, so
+       whether both fit is a question about this window rather than a breakpoint. */
+    var fits = open && window.innerWidth - width >= planner.outerWidth() + 40
+    root.toggleClass('sp-pushed', !!fits)
+    root.css('padding-right', fits ? width + 'px' : '')
+  }
+
+  /* One place that knows how an open panel looks, so the three of them cannot drift apart. */
+  function setPanelOpen(id, drawerId, open) {
+    var $button = $('#' + id)
+    if ($button.length) {
+      $button.toggleClass('sp-button--active', open).attr('aria-expanded', open ? 'true' : 'false')
+      $button.find('.sp-tool__close').remove()
+      if (open) $button.append($('<i class="material-icons sp-tool__close"></i>').text('close'))
+    }
+    if (open) pushedDrawer = drawerId
+    else if (pushedDrawer === drawerId) pushedDrawer = null
+    layoutForDrawer(drawerId, open)
+  }
+
+  $(window).on('resize', function () {
+    if (pushedDrawer) layoutForDrawer(pushedDrawer, true)
+  })
 
   function toolbarButton(spec) {
     /* The planner's own buttons are moved rather than recreated, so its handlers survive. */
@@ -3273,12 +3563,61 @@
 
     $button
       .addClass('sp-tool')
+      .addClass('sp-tool--' + (spec.kind || 'action'))
       .attr('title', spec.title)
       .append($('<i class="material-icons"></i>').text(spec.icon))
       .append($('<span class="sp-tool__label"></span>').text(spec.label))
 
+    /* No caret on panel buttons: a downward chevron promises a menu dropping down, and what
+       actually happens is a panel sliding in from the right. Instead the button says what the
+       click will do - it picks up a close mark once its panel is open, see setPanelOpen. */
+
     if (spec.action) $button.on('click', spec.action)
     return $button
+  }
+
+  /* The three blocks at the bottom of a planner - the optimiser buttons, the tool links and the
+     tips - were left at browser defaults by the mirror. The styling is in the stylesheet; what has
+     to happen here is the part CSS cannot do: say what the two buttons are for, drop a container
+     that is now always empty, label the link list, and make the tips header work from the
+     keyboard. The bundle owns the tips toggle itself, including remembering it, so this only
+     forwards a keypress to the click it already listens for. */
+  function polishFooter() {
+    var OPTIMISERS = {
+      'button-optimal-armor': {
+        icon: 'shield',
+        label: 'Find optimal armor',
+        title: 'Pick the armour set with the best absorption for the weight you have left'
+      },
+      'button-optimal-class': {
+        icon: 'person_search',
+        label: 'Find optimal class',
+        title: 'Work out which starting class reaches these stats for the fewest levels'
+      }
+    }
+
+    for (var id in OPTIMISERS) {
+      if (!Object.prototype.hasOwnProperty.call(OPTIMISERS, id)) continue
+      var spec = OPTIMISERS[id]
+      var $button = $('#' + id)
+      if (!$button.length) continue
+      $button
+        .empty()
+        .attr('title', spec.title)
+        .append($('<i class="material-icons"></i>').text(spec.icon))
+        .append($('<span></span>').text(spec.label))
+    }
+
+    /* The planner ships a second, empty div beside the buttons; with the row now laid out as flex
+       it shows up as a gap. */
+    $('.planner .footer .controls > div').filter(function () {
+      return !$.trim($(this).html())
+    }).remove()
+
+    var $links = $('.planner .footer .links')
+    if ($links.length && !$links.prev('.sp-links-caption').length) {
+      $('<div class="sp-links-caption"></div>').text('More tools for this game').insertBefore($links)
+    }
   }
 
   function buildToolbar() {
@@ -3290,6 +3629,7 @@
 
     for (var g = 0; g < TOOLBAR_GROUPS.length; g++) {
       var group = $('<div class="sp-toolbar__group"></div>')
+      if (TOOLBAR_GROUPS[g].side === 'right') group.addClass('sp-toolbar__group--panels')
       for (var b = 0; b < TOOLBAR_GROUPS[g].buttons.length; b++) {
         toolbarButton(TOOLBAR_GROUPS[g].buttons[b]).appendTo(group)
       }
@@ -3297,30 +3637,9 @@
     }
 
     /* The status belongs with the actions that change it, not stranded under the class field. */
-    $('<div id="sp-status" class="sp-status"></div>')
-      .appendTo(bar)
-      .on('click', '.sp-status__missing', function (event) {
-        event.stopPropagation()
-        var marked = markEquippedOwned()
-        syncOwnedButton()
-        updateStatus()
-        if ($('#browse-drawer').length) renderBrowse()
-        toast(marked ? 'Marked ' + marked + ' items as owned' : 'Nothing left to mark')
-      })
-      .on('click', function () {
-        var entry = savedEntry()
-        if (!entry) {
-          saveCurrent(false)
-          updateStatus()
-          return
-        }
-        if (!diffBuilds(stateOf(entry), currentState()).length) {
-          openDrawer()
-          return
-        }
-        openDrawer()
-        runCompare({ name: entry.name + ' (saved)', state: stateOf(entry) }, { name: 'Current build', state: currentState() })
-      })
+    /* No handlers here any more: every action in the status is a button that says what it does,
+       rather than a click somewhere on a line that did different things in different places. */
+    $('<div id="sp-status" class="sp-status"></div>').appendTo(bar)
 
     var caption = planner.children('.page-caption')
     if (caption.length) bar.insertAfter(caption)
@@ -3366,7 +3685,11 @@
       return
     }
 
+    /* Before the toolbar, so the button can be dropped when a page has no tips to show. */
+    var hasTips = buildTipsDrawer()
     buildToolbar()
+    if (!hasTips) $('#sp-button-tips').remove()
+    polishFooter()
     syncHistoryButtons()
     syncOwnedButton()
     rebindStockButtons()
@@ -3388,18 +3711,12 @@
        arrow-key handlers all go through .val(x).trigger('change'), so they are covered too. */
     $('.planner').on('change', 'select, input', schedulePersist)
 
-    var ownable = ownableSelectors()
-    if (ownable) {
-      /* Delegated from the document, not from .planner: jQuery resolves a delegated selector
-         relative to the element it is bound to, so ".planner .armor select" bound on .planner
-         would be looking for a .planner inside .planner and never match - which is exactly how
-         this failed silently the first time. */
-      $(document).on('change', ownable, function () {
-        if (applying) return
-        noteEquipped($(this))
-        syncOwnedButton()
-      })
-    }
+    /* The browser is a view of the planner, so it has to follow it. Changing the Head dropdown in
+       the planner while the table is open left the old row marked "Equipped" and the slot picker
+       naming an item no longer in the slot. It is not only the slot's own dropdown either: a stat
+       change moves which requirements are shown in red, and a weight change moves what "Only what
+       fits" hides, so any planner change is a reason to redraw. */
+    $('.planner').on('change', 'select, input', scheduleBrowseRefresh)
 
     $(document).on('keydown', function (event) {
       if (!(event.ctrlKey || event.metaKey)) return

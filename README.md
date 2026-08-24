@@ -24,14 +24,26 @@ two way to use:
 Added in this fork. The three character planners (DS, DS 2, DS 3) keep your build and can hand it
 to someone else as a link. The calculator pages are unchanged — they have no build state.
 
-A labelled toolbar sits under the page title, grouped by what the actions do:
+A labelled toolbar sits under the page title, split by what a button *does* rather than by topic,
+because that is the thing you cannot tell from an icon.
+
+Everything on the **left** happens to your build the moment you click it:
 
 | Group | Buttons |
 | --- | --- |
 | Build | **New**, **Reset**, **Undo**, **Redo** |
-| Saved | **Save** (or `Ctrl`+`S`), **Builds** — load, rename, duplicate, compare, export, import |
-| Share | **Copy link**, **Share** — image, text, or a readout for an AI assistant |
-| Items | **Items** — browse a slot as a sortable table, **Owned** — filter to what you have |
+| Save | **Save** (or `Ctrl`+`S`), **Copy link** |
+| View | **Owned only** — a switch, drawn as one, that stays on until you turn it off |
+
+Everything on the **right** opens a panel: **Builds**, **Items**, **Share**, **Tips**. They sit
+together in a tray against the right-hand edge — the edge the panels themselves slide in from — so
+where a button is tells you what it does. An open one is filled and picks up a **×**, since a second
+click closes it.
+
+Opening a panel does not bury the planner underneath it. Where the window has room, the page steps
+aside and the panel takes the space next to it, leaving the button you pressed visible right beside
+the panel it opened; where it does not, the panel overlays as before. The item browser is 780px
+wide, so overlaying used to swallow the button that opened it.
 
 The build's status sits underneath it.
 
@@ -53,6 +65,11 @@ and stats update as if nothing were equipped — but what was in it is remembere
 box puts it straight back. Useful for "what do I weigh without leg armour" without having to go
 and find the leggings again.
 
+A parked slot still *shows* what is in it, greyed and struck through, rather than falling back to
+"Naked" — including a weapon's upgrade and infusion, so a parked *Long Sword +10 Blessed* still
+reads as one. The planner is given an empty slot, which is the whole point; only the display keeps
+the name.
+
 Weapons come back with their reinforcement and infusion intact (DS: upgrade path; DS 2:
 infusion), and armour in DS keeps its reinforcement. Parked slots travel in saved builds and in
 share links, so a link can show a build with a slot deliberately empty. Picking something new for
@@ -60,16 +77,26 @@ a parked slot re-enables it.
 
 ### Knowing whether you have saved
 
-Under the class selector there is a line telling you where the build stands:
+Under the toolbar, a chip names where the build stands, the build it is talking about, and what you
+can do about it:
 
-* **○ Unsaved draft** — nothing named yet. It is still in the address bar and will survive a
-  refresh; click the line to give it a name.
-* **● Havel Tank · saved** — matches the build you saved.
-* **● Havel Tank · 3 unsaved changes** — with the fields named underneath (*Head, Legs, Vigor*),
-  the before and after in the tooltip, and a click for the full side-by-side.
+| | | |
+| --- | --- | --- |
+| **DRAFT** | This build has no name yet | *Save it* |
+| **SAVED** | Havel Tank · saved 2 hours ago | *Your builds* |
+| **UNSAVED** | Havel Tank · 3 changes | *Save*, *See what changed* |
 
-The count is a real diff rather than a "something changed" flag, so reverting an edit by hand
-takes it back down. While there are unsaved changes the browser tab title gets a ● in front of
+When there are changes, the fields are named on the line below — **Changed** *Head, Legs, Vigor* —
+with the before and after in the tooltip. Anything you have equipped but not marked as owned gets
+its own line under that, with its own button, because what you own has nothing to do with whether
+the build is saved.
+
+This started as one run-on sentence — a bare ○/● dot, the name, the count, the field list and the
+ownership note all the same size and colour — where clicking different parts of the line did
+different things and nothing said which. The state now names itself and every action is a button.
+
+The change count is a real diff rather than a "something changed" flag, so reverting an edit by
+hand takes it back down. While there are unsaved changes the browser tab title gets a ● in front of
 it, which is what you want when several planners are open at once.
 
 ### What each item is, while you are choosing it
@@ -122,29 +149,36 @@ have — the equipped item always stays selectable, so nothing gets stuck.
 Filling the list is the part that had to be cheap, because Dark Souls 3 alone has 360 armour
 pieces, 305 weapons, 115 rings and 105 spells:
 
-* **Anything you equip is marked automatically.** The list builds itself as you use the planner.
+* **Marking what a build uses, in one go.** Whenever the build wears something unmarked, the status
+  line says so — clicking that marks the lot. Equipping something does *not* mark it on its own:
+  planning around a weapon you are working towards, or trying a set on to see what it weighs, is
+  the ordinary case, and it should not quietly claim you own it.
 * **Armour sets go in one click.** The item ids encode sets, so *set* on any piece marks the whole
   four-piece set across all four slots. (Dark Souls 2 keys items by name, so there it marks the
   single piece.)
 * **Bulk marking in the browser** — search, then *Mark all shown*.
 
-The status line quietly notes when a build uses something you have not marked — and clicking that
-note marks the lot in one go, which is the quickest way to catch up after loading a build that
-came from a link or from your last session. Owned state is per
-game, kept beside your builds, and deliberately never travels in a share link: it describes you,
-not the build.
+Owned state is per game, kept beside your builds, and deliberately never travels in a share link:
+it describes you, not the build.
 
 ### Browsing a slot properly
 
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The
-table button in the toolbar opens its own panel listing every item for a slot as a sortable table — the same numbers as
+**Items** button in the toolbar opens its own panel listing every item for a slot as a sortable table — the same numbers as
 the dropdown, plus derived columns a dropdown cannot show, **poise per weight** being the one that
 usually settles it.
 
-Pick the slot from inside the browser, so you can flick between them while comparing. Sort by any
+Pick the slot from inside the browser, so you can flick between them while comparing. The picker
+groups the slots by what they take and says what is in each one — *Right hand 1 · Long Sword*,
+*Ring 3 · empty* — so you can choose the slot you meant without first working out which hand is
+holding the shield. Sort by any
 column, search by name, or tick **Only what fits** to hide anything heavier than your remaining
-equip load — counting the slot's current item, since equipping replaces rather than adds. Clicking
-a row equips it and leaves the table open, so you can try a few against each other.
+equip load — counting the slot's current item, since equipping replaces rather than adds.
+
+Each row has an **Equip** button, and the table stays open so you can try a few against each other;
+the row you are wearing says *Equipped* instead. Equipping used to be a click anywhere on the row,
+which meant reading a row and choosing it were the same gesture — and it also marked the item as
+owned, so one unlabelled click quietly did two things. Now it does one, and says so.
 
 ### Undo
 
@@ -193,14 +227,27 @@ Use Export in the builds dialog for a backup you can keep.
 
 ## Getting around
 
-Every page of a game now carries a second bar listing that game's tools — planner, weapon attack
-and defence, ranged, stamina, armor, spells, items — with the current one marked, and the current
-game marked in the menu above it. Previously only the planner listed them, at the bottom of a very
-long page, so moving between two calculators meant going out to the home page and back.
+Every page of a game carries its tools in the top bar — planner, weapon attack and defence, ranged,
+stamina, armor, spells, items — with the current one marked. Previously only the planner listed
+them, at the bottom of a very long page, so moving between two calculators meant going out to the
+home page and back.
+
+The game sits beside them as a named dropdown (*Dark Souls 3*) rather than three abbreviations.
+That started as two bars — games on top, tools underneath — and a dropdown for three items is
+usually worse than three tabs; here it buys back a whole bar and turns "which game am I in" from a
+faint underline into a label. The click it costs is on the thing you do rarely.
 
 Switching game keeps the tool you are on where the other game has it, so Dark Souls 3's weapon
 calculator goes straight to Dark Souls'. Dark Souls 2 was only mirrored as a planner, so it falls
 back to that.
+
+### The bottom of a planner
+
+The three blocks under the planner were left at browser defaults by the mirror. The two optimiser
+buttons now say what they do (*Find optimal armor*, *Find optimal class*) and explain it on hover;
+the tool links are styled as a quiet row, since the bar at the top now covers the same ground; and
+the **tips** — nine notes on how the planner expects to be used — moved out of the very bottom of a
+page several screens long and into their own panel, one click from the top.
 
 ## The calculators
 

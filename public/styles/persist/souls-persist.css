@@ -34,6 +34,12 @@
   transform: none;
 }
 
+/* The page moves out from under an open panel rather than being buried by it. Same duration and
+   easing as the drawer, so the two read as one movement. */
+.modal-overlay {
+  transition: padding-right 0.18s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sp-drawer {
     transition: none;
@@ -256,10 +262,20 @@
 }
 
 /* A parked slot should read as deliberately empty, not merely unequipped. */
-.planner .sp-slot--parked > .select2 .select2-selection__rendered,
+/* Parked: still legible, clearly not counting. The name is kept rather than replaced by the
+   placeholder, so you can see what you have switched off. Carried by the rendered element itself
+   rather than by the slot, because a weapon's reinforce and infusion dropdowns sit outside it. */
+.planner .sp-parked-name {
+  font-style: italic;
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+}
+
+/* The native-select path has no rendered element to mark, so the slot does it. */
 .planner .sp-slot--parked > select {
   font-style: italic;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 /* ------------------------------------------------------------------------ compare */
@@ -381,25 +397,89 @@
 /* Its own line under the class row: the cells above are inline-block, so a block-level chip
    naturally starts a new one. */
 
-.sp-status__dot {
-  font-size: 10px;
-  vertical-align: 1px;
+/* A state chip that names its own state, the build it refers to, and buttons that say what they
+   do. Previously: a bare dot, a run-on sentence, and a click that meant different things
+   depending on where in the line it landed. */
+.sp-status__line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
-.planner.dark .sp-status--draft {
-  color: #888;
+.sp-status__line + .sp-status__line {
+  margin-top: 4px;
 }
 
-.planner.dark .sp-status--saved {
-  color: #6a9a6a;
+.planner.dark .sp-status__state {
+  align-items: center;
+  border: 1px solid;
+  border-radius: 10px;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 3px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 3px 8px 3px 6px;
+  text-transform: uppercase;
 }
 
-.planner.dark .sp-status--dirty {
-  color: #d0a24c;
+.planner.dark .sp-status__state .material-icons {
+  font-size: 13px !important;
 }
 
-.planner .sp-status:hover {
-  text-decoration: underline;
+.planner.dark .sp-status--draft .sp-status__state {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #3d3d3d;
+  color: #9a9a9a;
+}
+
+.planner.dark .sp-status--saved .sp-status__state {
+  background: rgba(106, 154, 106, 0.14);
+  border-color: #3f6b3f;
+  color: #8fc08f;
+}
+
+.planner.dark .sp-status--dirty .sp-status__state {
+  background: rgba(208, 162, 76, 0.16);
+  border-color: #6b5520;
+  color: #e8c880;
+}
+
+.planner.dark .sp-status__name {
+  color: #ddd6c8;
+  font-size: 13px;
+}
+
+.planner.dark .sp-status__when,
+.planner.dark .sp-status__count {
+  color: #8a8a8a;
+  font-size: 12px;
+}
+
+.planner.dark .sp-status__count::before {
+  content: '\00b7';
+  margin-right: 6px;
+}
+
+/* The actions were "click the line somewhere". They are buttons now. */
+.planner.dark button.sp-status__action {
+  background: 0 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  color: #b9b2a4;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+
+.planner.dark button.sp-status__action:hover {
+  background: rgba(208, 162, 76, 0.14);
+  border-color: #6b5520;
+  color: #f0dfae;
 }
 
 /* ------------------------------------------------------------------------- offline */
@@ -599,58 +679,155 @@
 
 /* --------------------------------------------------------------------- navigation */
 
-/* A second bar under the main menu, matching its palette and typeface. Its own element rather
-   than a second row inside #main-menu, which is locked to 60px. */
-.sp-subnav {
-  background: rgba(0, 0, 0, 0.55);
-  border-bottom: 1px solid #222;
-  font-family: Aclonica, sans-serif;
-  font-size: 12px;
+/* One bar, not two. The game became a named dropdown sitting where the three abbreviations were,
+   and the tools moved up beside it. */
+#main-menu {
   overflow-x: auto;
+  scrollbar-width: none;
   white-space: nowrap;
 }
 
-.sp-subnav ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+#main-menu::-webkit-scrollbar {
+  display: none;
 }
 
-.sp-subnav li {
-  display: inline-block;
+.sp-gamemenu {
+  position: relative;
 }
 
-.sp-subnav a {
-  color: #999;
-  display: block;
-  line-height: 32px;
-  padding: 0 10px;
-  text-decoration: none;
+.sp-gamemenu__button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #343434;
+  border-radius: 4px;
+  color: #e8e8e8;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 14px;
+  gap: 2px;
+  line-height: 1;
+  margin: 0 6px 0 4px;
+  padding: 7px 7px 7px 11px;
+  vertical-align: middle;
 }
 
-.sp-subnav a:hover {
+.sp-gamemenu__button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #4c4c4c;
   color: #fff;
 }
 
-.sp-subnav__current {
-  box-shadow: inset 0 -2px 0 #d0a24c;
-  color: #e8e8e8 !important;
+.sp-gamemenu__button[aria-expanded='true'] {
+  background: rgba(208, 162, 76, 0.16);
+  border-color: #6b5520;
+  color: #f0dfae;
 }
 
-/* The game you are already in, in the main menu. */
-#main-menu .sp-menu__current {
-  box-shadow: inset 0 -2px 0 #d0a24c;
-  color: #fff !important;
+.sp-gamemenu__button .material-icons {
+  font-size: 18px;
+  transition: transform 0.15s ease-out;
+  vertical-align: middle;
 }
 
-/* Which fields are unsaved, not just how many. */
-.sp-status__fields {
+.sp-gamemenu__button[aria-expanded='true'] .material-icons {
+  transform: rotate(180deg);
+}
+
+/* Fixed and placed on open, so the bar can scroll sideways without clipping the menu. */
+.sp-gamemenu__list {
+  background: #141414;
+  border: 1px solid #303030;
+  border-radius: 5px;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.65);
+  display: none;
+  list-style: none;
+  margin: 0;
+  min-width: 176px;
+  padding: 4px;
+  position: fixed;
+  z-index: 300;
+}
+
+.sp-gamemenu--open .sp-gamemenu__list {
   display: block;
+}
+
+/* The menu sits inside .mm__horizontal, whose own rule makes every li inline-block - which laid
+   the three games out in a row inside the dropdown. */
+#main-menu .sp-gamemenu__list li {
+  display: block;
+}
+
+#main-menu .sp-gamemenu__list li + li {
+  margin-top: 2px;
+}
+
+#main-menu .sp-gamemenu__list a {
+  align-items: center;
+  border-radius: 3px;
+  color: #c8c8c8;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  justify-content: space-between;
+  line-height: 1.25;
+  padding: 10px 12px;
+}
+
+#main-menu .sp-gamemenu__list a:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+#main-menu .sp-gamemenu__list .sp-gamemenu__current {
+  background: rgba(208, 162, 76, 0.12);
+  color: #f0dfae;
+}
+
+#main-menu .sp-gamemenu__list .material-icons {
+  font-size: 16px;
+  vertical-align: middle;
+}
+
+/* A hairline between the game and its tools, so the bar reads as two things rather than a run of
+   nine links. */
+#main-menu .sp-navrule {
+  border-left: 1px solid #333;
+  height: 20px;
+  margin: 0 6px;
+  vertical-align: middle;
+  width: 0;
+}
+
+#main-menu .sp-toolnav a {
+  color: #979797;
+  font-size: 13px;
+  padding: 0 9px;
+}
+
+#main-menu .sp-toolnav a:hover {
+  color: #fff;
+}
+
+#main-menu .sp-toolnav .sp-toolnav__current {
+  box-shadow: inset 0 -2px 0 #d0a24c;
+  color: #ececec !important;
+}
+
+/* Which fields are unsaved, not just how many. Labelled, so it reads as a list of fields rather
+   than as the tail of the sentence above it. */
+.planner.dark .sp-status__fields {
+  color: #8a8a8a;
   font-size: 11px;
-  opacity: 0.8;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 6px;
+}
+
+.planner.dark .sp-status__fields-label {
+  color: #6f6f6f;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 /* ------------------------------------------------------------ item info in dropdowns */
@@ -726,8 +903,9 @@
   color: #f0dfae;
 }
 
-.sp-subnav__install {
+#main-menu .sp-nav__install {
   float: right;
+  line-height: 60px;
 }
 
 .sp-offline .sp-install {
@@ -894,10 +1072,8 @@
   white-space: normal;
 }
 
-.sp-browse__row {
-  cursor: pointer;
-}
-
+/* The row is no longer a button, so it no longer claims to be one. The hover tint stays - it is
+   what lets you track a row across nine columns. */
 .sp-browse__row:hover td {
   background: #eef3f7;
 }
@@ -952,6 +1128,20 @@
 /* Restricted to typography, colour and spacing on purpose. The planner's layout is built from
    calc() widths that change at several breakpoints, so anything structural here would be a
    guaranteed regression - the field-width bug earlier in this work was exactly that. */
+
+/* The three columns are drawn with a flat #555 box on near-black, which is the heaviest line on
+   the page and frames empty space as loudly as it frames the fields. Colour only - the widths,
+   the negative margins that collapse the shared edges and the padding are all untouched. */
+.planner.dark .col {
+  background: rgba(255, 255, 255, 0.012);
+  border-color: #2f2f2f;
+}
+
+/* The blocks inside a column are separated by nothing at all, so a long column reads as one list
+   of unrelated fields. */
+.planner.dark .col > div + div {
+  margin-top: 10px;
+}
 
 /* Section captions read as floating grey text rather than headings.
    Only captions that are a plain label get this. The class is also used for multi-column headers
@@ -1033,10 +1223,13 @@
   margin: 0;
 }
 
-.sp-status__missing {
-  color: #9a8f7d;
-  display: block;
+.planner.dark .sp-status__missing {
+  color: #b09a6a;
   font-size: 11px;
+}
+
+.planner.dark .sp-status__missing .material-icons {
+  font-size: 14px !important;
 }
 
 .sp-browse__mark {
@@ -1062,12 +1255,7 @@
   color: #069;
 }
 
-/* The count is also the fix for it. */
-.sp-status__missing {
-  cursor: pointer;
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
-}
+
 
 .sp-status__missing:hover {
   color: #d0a24c;
@@ -1091,7 +1279,9 @@
 }
 
 .sp-toolbar__actions {
+  align-items: center;
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 4px 14px;
 }
@@ -1105,6 +1295,22 @@
 .sp-toolbar__group + .sp-toolbar__group {
   border-left: 1px solid #333;
   padding-left: 14px;
+}
+
+/* Pushed to the far right - the edge its panels slide out from - and sitting in a shallow tray so
+   the three of them read as one dock rather than three more actions that happen to come last. The
+   position is the affordance; nothing has to be drawn on the buttons to explain it. */
+.sp-toolbar__group--panels {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid #2e2e2e;
+  border-radius: 5px;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+}
+
+.sp-toolbar__group + .sp-toolbar__group--panels {
+  padding-left: 3px;
 }
 
 .planner.dark button.sp-tool {
@@ -1141,10 +1347,56 @@
   opacity: 0.32;
 }
 
-/* Lit while the panel it opens is showing, so it reads as a toggle. */
-.planner.dark button.sp-tool.sp-button--active {
-  background: rgba(208, 162, 76, 0.18);
+/* Three different kinds of thing were wearing the same clothes: actions that fire once, buttons
+   that open a panel, and a switch that stays on. They now look like what they are. */
+
+/* Panel buttons carry no outline of their own - the tray around them already sets them apart, and
+   two nested borders only made the row noisier. */
+.planner.dark button.sp-tool--panel {
+  height: 26px;
+}
+
+/* Only present while the panel is open, so the button reads as "click to close" rather than
+   promising a dropdown that never comes. */
+.sp-tool__close {
+  font-size: 14px !important;
+  margin-left: 1px;
+  opacity: 0.75;
+}
+
+.planner.dark button.sp-tool--panel.sp-button--active {
+  background: rgba(208, 162, 76, 0.16);
+  border-color: #6b5520;
   color: #f0dfae;
+}
+
+
+
+/* The switch: a track that visibly sits off or on, and holds its position across reloads. */
+.planner.dark button.sp-tool--switch {
+  border-color: #3a3a3a;
+}
+
+.planner.dark button.sp-tool--switch .material-icons {
+  font-size: 20px;
+  opacity: 0.6;
+}
+
+.planner.dark button.sp-tool--switch.sp-button--active {
+  background: rgba(208, 162, 76, 0.16);
+  border-color: #d0a24c;
+  color: #f0dfae;
+}
+
+.planner.dark button.sp-tool--switch.sp-button--active .material-icons {
+  color: #d0a24c;
+  opacity: 1;
+}
+
+/* Reset throws the build away; hovering it should feel different from hovering Undo. */
+.planner.dark button.sp-tool--danger:hover:not(:disabled) {
+  background: rgba(200, 90, 90, 0.16);
+  color: #f0c0c0;
 }
 
 /* Narrow screens: drop the words rather than wrap into a tall stack. */
@@ -1166,4 +1418,180 @@
   font-size: 12px;
   margin: 0;
   text-align: left;
+}
+
+/* ================================================================= planner footer */
+
+/* The bottom of a planner carried three blocks the mirror never restyled: two optimiser buttons in
+   a flat red, a wrapped list of underlined blue links, and the tips in monospace. They are the last
+   thing on a very long page and read as though they belonged to a different site. */
+
+.planner .footer .controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.planner.dark .footer .controls button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #d8d2c4;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 13px;
+  gap: 6px;
+  height: 32px;
+  margin: 0 6px 0 0;
+  padding: 0 12px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+  /* The mirror pins these to 120px (and to half the row at one breakpoint), which breaks the
+     label across two lines. They can size to what they say. */
+  white-space: nowrap;
+  width: auto;
+}
+
+.planner.dark .footer .controls button:hover {
+  background: rgba(208, 162, 76, 0.14);
+  border-color: #6b5520;
+  color: #f0dfae;
+}
+
+.planner .footer .controls .material-icons {
+  font-size: 17px;
+}
+
+/* The links duplicate the tool bar at the top of the page now, so they are deliberately quiet -
+   there for someone already at the bottom, not competing for attention. */
+.sp-links-caption {
+  border-top: 1px solid #262626;
+  color: #6f6f6f;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  margin: 18px 0 0;
+  padding: 12px 0 6px;
+  text-transform: uppercase;
+}
+
+.planner .footer .links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+}
+
+.planner .footer .links > div {
+  display: inline-block;
+  margin: 0;
+}
+
+.planner.dark .footer .links a {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #9a9a9a;
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 9px;
+  text-decoration: none;
+}
+
+.planner.dark .footer .links a:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: #3a3a3a;
+  color: #fff;
+}
+
+/* Tips now live in a panel of their own rather than at the very bottom of the page. The drawer is
+   light, like the other three, so these are drawer styles rather than planner ones. */
+#tips-drawer {
+  width: 420px;
+}
+
+.sp-tips__hint {
+  color: #666;
+  font-size: 12px;
+  margin: 6px 0 12px;
+}
+
+#tips-drawer ul {
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  padding-left: 20px;
+}
+
+#tips-drawer li {
+  margin: 0 0 10px;
+  padding-left: 2px;
+}
+
+
+/* Equipping from the browser is an explicit button. The whole row used to be the hit target, which
+   made reading a row and choosing it the same gesture. */
+.sp-browse__equip-cell {
+  padding-right: 6px;
+  width: 1%;
+}
+
+.sp-browse__equip {
+  background: #fff;
+  border: 1px solid #c6c6c6;
+  border-radius: 3px;
+  color: #333;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.sp-browse__equip:hover:not(:disabled) {
+  background: #f0e6cd;
+  border-color: #b99a55;
+  color: #4a3a12;
+}
+
+.sp-browse__equip:disabled {
+  background: 0 0;
+  border-color: transparent;
+  color: #999;
+  cursor: default;
+}
+
+/* The slot picker is the control that decides what the whole table is about, and it was a bare
+   native select sitting next to a search box of the same weight. */
+.sp-browse__slot-label {
+  align-items: center;
+  color: #777;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 6px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sp-browse__slot {
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  color: #222;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  max-width: 260px;
+  padding: 5px 6px;
+  text-transform: none;
+}
+
+.sp-browse__slot:hover {
+  border-color: #8d7a4d;
+}
+
+.sp-browse__slot:focus-visible {
+  border-color: #8d7a4d;
+  outline: 2px solid #d0a24c;
+  outline-offset: 1px;
 }

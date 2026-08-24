@@ -45,12 +45,16 @@
   function show() {
     if (installed() || !deferred || document.querySelector('.sp-install')) return
 
-    var subnav = document.querySelector('.sp-subnav ul')
-    if (subnav) {
+    /* Its own right-floated list in the nav bar, using the menu's existing mm__right convention,
+       so it sits opposite the game and its tools rather than at the end of them. */
+    var menu = document.getElementById('main-menu')
+    if (menu && menu.querySelector('.mm__horizontal')) {
+      var list = document.createElement('ul')
+      list.className = 'mm__horizontal mm__right sp-nav__install'
       var item = document.createElement('li')
-      item.className = 'sp-subnav__install'
       item.appendChild(button())
-      subnav.appendChild(item)
+      list.appendChild(item)
+      menu.appendChild(list)
     }
 
     var offline = document.querySelector('.sp-offline h2')
