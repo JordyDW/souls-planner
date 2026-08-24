@@ -102,6 +102,31 @@
         { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-upgrade'] },
         { selector: '.planner .rings select', suffixes: [] }
       ],
+      /* Dark Souls quotes armour as flat defence rather than a damage multiplier, and its rings
+         are weightless, so those two columns differ from Dark Souls 3's. */
+      info: {
+        poiseLabel: 'Poise (adds across pieces)',
+        defenceLabel: 'Physical defence at +0 (adds across pieces)',
+        defenceUnit: '',
+        armor: function (id) {
+          /* Dark Souls adds poise and defence up rather than multiplying, and its Protector takes
+             a reinforce level - defence rises with upgrades, so this is the +0 figure. */
+          var p = new DarkSouls.model.Protector(id, 0)
+          return { weight: p.getWeight(), poise: p.getPoise(), defence: p.getPhysicalDEF() }
+        },
+        weapon: function (id) {
+          var w = new DarkSouls.model.Weapon(parseInt(id, 10), 0, 0)
+          return { weight: w.getWeight(), req: w.getRequirements() }
+        },
+        ring: function (id) {
+          var r = new DarkSouls.model.Ring(parseInt(id, 10))
+          return { effects: r.getDescription() || [] }
+        },
+        spell: function (id) {
+          var sp = new DarkSouls.model.Spell(parseInt(id, 10))
+          return { slots: sp.getSlotCount(), req: sp.getRequirements() }
+        }
+      },
       lists: [
         { key: 'armor', selector: '.planner .armor .wrapper-protector select', extras: ['-reinforce'] },
         { key: 'weapons', selector: '.planner .weapons .wrapper-weapon select', extras: ['-reinforce', '-upgrade'] },
@@ -159,6 +184,29 @@
         { selector: '.weapons .wrapper-weapon select', suffixes: ['-infusion'] },
         { selector: '.rings select', suffixes: [] }
       ],
+      /* Dark Souls 2 has no model classes at all - its records already carry the numbers, which
+         makes this the simplest of the three. Armour lives in one table per slot. */
+      info: {
+        poiseLabel: 'Poise (adds across pieces)',
+        defenceLabel: 'Physical defence (adds across pieces)',
+        defenceUnit: '',
+        armor: function (id, slotId) {
+          var rec = DarkSouls2[slotId] && DarkSouls2[slotId][id]
+          return rec ? { weight: rec.weight, poise: rec.poise, defence: rec.physicalDEF } : null
+        },
+        weapon: function (id) {
+          var rec = DarkSouls2.weapons[id]
+          return rec ? { weight: rec.weight, req: rec.require || {} } : null
+        },
+        ring: function (id) {
+          var rec = DarkSouls2.rings[id]
+          return rec ? { weight: rec.weight, effects: rec.effects || [] } : null
+        },
+        spell: function (id) {
+          var rec = DarkSouls2.spells[id]
+          return rec ? { slots: rec.slots } : null
+        }
+      },
       lists: [
         { key: 'armor', selector: '.armor select', extras: [] },
         { key: 'weapons', selector: '.weapons .wrapper-weapon select', extras: ['-infusion'] },
@@ -204,6 +252,35 @@
         { selector: '.planner .weapons .wrapper-weapon select', suffixes: ['-reinforce', '-infusion'] },
         { selector: '.planner .rings select', suffixes: [] }
       ],
+      info: {
+        poiseLabel: 'Poise from this piece alone (pieces combine multiplicatively)',
+        defenceLabel: 'Physical absorption from this piece alone (pieces combine multiplicatively)',
+        defenceUnit: '%',
+        armor: function (id) {
+          var p = new DarkSouls3.model.Protector(id)
+          /* Both poise and absorption are stored as damage multipliers - the planner aggregates
+             them as 100 * (1 - product of the four pieces), so a single piece's own contribution
+             is 100 * (1 - its multiplier). Reading getPoise() raw gives ~0.9 and disagrees with
+             the planner by an order of magnitude. */
+          return {
+            weight: p.getWeight(),
+            poise: (1 - p.getPoise()) * 100,
+            defence: (1 - p.getPhysicalABS()) * 100
+          }
+        },
+        weapon: function (id) {
+          var w = new DarkSouls3.model.Weapon(parseInt(id, 10), 0, 0)
+          return { weight: w.getWeight(), req: w.getRequirements() }
+        },
+        ring: function (id) {
+          var r = new DarkSouls3.model.Ring(id)
+          return { weight: r.getWeight(), effects: r.getDescription() || [] }
+        },
+        spell: function (id) {
+          var sp = new DarkSouls3.model.Spell(parseInt(id, 10))
+          return { slots: sp.getSlotCount(), fp: sp.getFPUse(), req: sp.getRequirements() }
+        }
+      },
       lists: [
         { key: 'armor', selector: '.planner .armor select', extras: [] },
         { key: 'weapons', selector: '.planner .weapons .wrapper-weapon select', extras: ['-reinforce', '-infusion'] },
@@ -1297,6 +1374,147 @@
     toast(delta < 0 ? 'Undo' : 'Redo')
   }
 
+  /* ------------------------------------------------------- item info in dropdowns */
+
+  /* Every dropdown used to show a bare name, so you equipped a chest piece to find out it weighed
+     24kg, and a ring's effect only appeared once it was on. The bundles carry all of it - weight,
+     poise, absorption, requirements, and for rings the actual effect text - so it can be shown
+     while you are still choosing.
+     
+     Deliberately absent: weapon AR. The planner derives it with a correction step for rings and
+     buffs that lives in a closure we cannot reach, so any number computed here would quietly
+     disagree with the one shown once the weapon is equipped. Better to say nothing than to
+     contradict the panel next to it. */
+
+  var REQUIREMENT_KEYS = ['strength', 'dexterity', 'intelligence', 'faith']
+
+  function totalStat(name) {
+    /* Prefer the total, which includes ring and buff bonuses, over the raw attribute. */
+    var $total = $('#' + name + '-total')
+    var raw = ($total.length ? $total.text() : '') || $('#' + name).val()
+    return parseInt(raw, 10) || 0
+  }
+
+  function askInfo(kind, value, slotId) {
+    var info = adapter.info
+    if (!info || !info[kind]) return null
+    try {
+      return info[kind](value, slotId) || null
+    } catch (e) {
+      /* A data quirk should cost you the extra columns, never the dropdown. */
+      return null
+    }
+  }
+
+  function numberCell(value, digits, title, suffix) {
+    return $('<span class="sp-opt__n"></span>')
+      .attr('title', title)
+      .text(value === undefined || value === null ? '–' : value.toFixed(digits) + (suffix || ''))
+  }
+
+  function requirementCell(req) {
+    var cell = $('<span class="sp-opt__req"></span>').attr('title', 'Requirements: STR / DEX / INT / FTH')
+    for (var i = 0; i < REQUIREMENT_KEYS.length; i++) {
+      var key = REQUIREMENT_KEYS[i]
+      var need = req && req[key] ? req[key] : 0
+      var part = $('<span></span>').text(need ? need : '–')
+      if (need && totalStat(key) < need) part.addClass('sp-opt__req--short')
+      cell.append(part)
+      if (i < REQUIREMENT_KEYS.length - 1) cell.append(document.createTextNode('/'))
+    }
+    return cell
+  }
+
+  function row(text) {
+    var wrap = $('<span class="sp-opt"></span>')
+    $('<span class="sp-opt__name"></span>').text(text).appendTo(wrap)
+    return wrap
+  }
+
+  var RENDERERS = {
+    armor: function (option, slotId) {
+      var info = askInfo('armor', option.id, slotId)
+      if (!info) return null
+      var wrap = row(option.text)
+      numberCell(info.weight, 1, 'Weight').appendTo(wrap)
+      numberCell(info.poise, 1, adapter.info.poiseLabel).appendTo(wrap)
+      numberCell(info.defence, 1, adapter.info.defenceLabel, adapter.info.defenceUnit).appendTo(wrap)
+      return wrap
+    },
+    weapon: function (option) {
+      var info = askInfo('weapon', option.id)
+      if (!info) return null
+      var wrap = row(option.text)
+      numberCell(info.weight, 1, 'Weight').appendTo(wrap)
+      requirementCell(info.req).appendTo(wrap)
+      return wrap
+    },
+    ring: function (option) {
+      var info = askInfo('ring', option.id)
+      if (!info) return null
+      var wrap = row(option.text)
+      if (info.weight !== undefined && info.weight !== null) {
+        numberCell(info.weight, 1, 'Weight').appendTo(wrap)
+      }
+      if (info.effects && info.effects.length) {
+        $('<span class="sp-opt__note"></span>').text(info.effects.join(' ')).appendTo(wrap)
+      }
+      return wrap
+    },
+    spell: function (option) {
+      var info = askInfo('spell', option.id)
+      if (!info) return null
+      var wrap = row(option.text)
+      if (info.fp !== undefined) numberCell(info.fp, 0, 'FP cost').appendTo(wrap)
+      if (info.slots !== undefined) numberCell(info.slots, 0, 'Attunement slots').appendTo(wrap)
+      if (info.req) requirementCell(info.req).appendTo(wrap)
+      return wrap
+    }
+  }
+
+  function templateFor(kind, slotId) {
+    return function (option) {
+      /* Placeholders and the "nothing equipped" entries have no item behind them. */
+      if (!option.id || option.id === '-1' || option.loading) return option.text
+      var rendered = RENDERERS[kind](option, slotId)
+      return rendered || option.text
+    }
+  }
+
+  /* Re-initialising is the only way to add a template to a select2 that is already up. The
+     planner's own options are read back off the instance rather than guessed, so allowClear and
+     each family's placeholder survive untouched. */
+  function retemplate($select, kind) {
+    var instance = $select.data('select2')
+    if (!instance) return
+    var options = $.extend({}, instance.options.options)
+    options.templateResult = templateFor(kind, $select.attr('id'))
+    $select.select2('destroy')
+    $select.select2(options)
+  }
+
+  function decorateDropdowns() {
+    /* No select2 means the mobile native-select path, where there is nothing to template. */
+    if (!$.isSelect2Supported || !$.isSelect2Supported()) return
+    if (!adapter.info) return
+
+    var groups = [
+      { kind: 'armor', selector: adapter.lists[0].selector },
+      { kind: 'weapon', selector: adapter.lists[1].selector },
+      { kind: 'ring', selector: adapter.lists[2].selector },
+      { kind: 'spell', selector: '.planner .spells select, .spells select' }
+    ]
+
+    for (var g = 0; g < groups.length; g++) {
+      /* jshint loopfunc:true */
+      ;(function (kind) {
+        $(groups[g].selector).each(function () {
+          retemplate($(this), kind)
+        })
+      })(groups[g].kind)
+    }
+  }
+
   /* ------------------------------------------------------------------- status */
 
   /* "Saved or not" is more useful as a number than as a dot. Because the diff engine already
@@ -1369,12 +1587,26 @@
       return
     }
 
+    /* Naming the fields is the difference between "something changed" and knowing whether you
+       still care. The full before/after goes in the tooltip, and clicking still opens the
+       side-by-side. */
+    var names = []
+    var detail = []
+    for (var c = 0; c < changes.length; c++) {
+      names.push(changes[c].label)
+      detail.push(changes[c].label + ': ' + changes[c].a + ' → ' + changes[c].b)
+    }
+
+    var shown = names.slice(0, 3).join(', ')
+    if (names.length > 3) shown += ' +' + (names.length - 3) + ' more'
+
     chip
       .addClass('sp-status--dirty')
-      .attr('title', 'Click to see what changed since you saved. Ctrl+S saves.')
+      .attr('title', detail.join('\n') + '\n\nClick to compare with the saved build. Ctrl+S saves.')
       .html('<span class="sp-status__dot">●</span> ')
       .append($('<span></span>').text(entry.name))
       .append(document.createTextNode(' · ' + changes.length + (changes.length === 1 ? ' unsaved change' : ' unsaved changes')))
+      .append($('<span class="sp-status__fields"></span>').text(shown))
     /* Visible in the tab strip, which matters when several planners are open at once. */
     document.title = '● ' + baseTitle
   }
@@ -1987,6 +2219,7 @@
     buildToggles()
     applyParked(restoredParked)
     buildStatus()
+    decorateDropdowns()
 
     /* Choosing something for a parked slot obviously means you want it back. */
     $('.planner').on('change', 'select', function () {

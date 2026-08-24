@@ -11,6 +11,23 @@
 
   if (!('serviceWorker' in navigator)) return
 
+  /* ?nosw bypasses the cache entirely and tears down any worker already installed. Useful while
+     editing the code, since the shell is served cache-first and a changed script otherwise keeps
+     loading from cache, and it is the way out if a cache ever ends up in a bad state. */
+  if (window.location.search.indexOf('nosw') !== -1) {
+    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+      for (var i = 0; i < registrations.length; i++) registrations[i].unregister()
+    })
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (names) {
+        for (var i = 0; i < names.length; i++) {
+          if (names[i].indexOf('souls-planner-') === 0) caches['delete'](names[i])
+        }
+      })
+    }
+    return
+  }
+
   var self = document.currentScript
   if (!self) {
     var scripts = document.getElementsByTagName('script')

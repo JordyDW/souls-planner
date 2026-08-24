@@ -62,12 +62,32 @@ Under the class selector there is a line telling you where the build stands:
 * **○ Unsaved draft** — nothing named yet. It is still in the address bar and will survive a
   refresh; click the line to give it a name.
 * **● Havel Tank · saved** — matches the build you saved.
-* **● Havel Tank · 3 unsaved changes** — you have changed three things since saving. Click it to
-  see exactly which three, side by side with the saved version.
+* **● Havel Tank · 3 unsaved changes** — with the fields named underneath (*Head, Legs, Vigor*),
+  the before and after in the tooltip, and a click for the full side-by-side.
 
 The count is a real diff rather than a "something changed" flag, so reverting an edit by hand
 takes it back down. While there are unsaved changes the browser tab title gets a ● in front of
 it, which is what you want when several planners are open at once.
+
+### What each item is, while you are choosing it
+
+Equipment dropdowns now carry the numbers, so you no longer equip a chest piece to find out it
+weighs 24kg:
+
+* **Armour** — weight, poise and physical absorption (Dark Souls and Dark Souls 2 show flat
+  defence, because that is how those games work).
+* **Weapons** — weight and requirements, with any stat you are short of in red, so an unwieldable
+  weapon reads as one before you pick it. Requirements are checked against your *total* stats, so
+  a ring that pushes you over clears the warning.
+* **Rings** — weight and their actual effect text, which previously only appeared once the ring
+  was already on.
+
+Deliberately not shown: weapon AR. The planner derives it with a correction step for rings and
+buffs that is not reachable from outside, so any number computed here would quietly disagree with
+the one you see once the weapon is equipped.
+
+For Dark Souls 3, a piece's poise and absorption are its own contribution — pieces combine
+multiplicatively rather than adding, which is how the planner totals them.
 
 ### Undo
 
@@ -162,9 +182,10 @@ After a deploy the new version installs in the background and applies on the nex
 "reload to update" note rather than having bundles swapped underneath a planner you are using. To
 force everything to be re-fetched, bump `CACHE_VERSION` in `sw.js`.
 
-Worth knowing if you edit the code: the worker serves the shell cache-first, so a changed
-script keeps loading from cache until the worker updates. Either bump `CACHE_VERSION` or
-unregister the worker in devtools while you are working on it.
+Worth knowing if you edit the code: the worker serves the shell cache-first, so a changed script
+keeps loading from cache until the worker updates. Add `?nosw` to any URL to skip the worker and
+tear down whatever is installed — that is also the way out if a cache ever ends up in a bad state.
+Bumping `CACHE_VERSION` forces a clean rebuild for everyone.
 
 ### A note on opening the files directly
 
