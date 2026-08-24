@@ -97,7 +97,7 @@ multiplicatively rather than adding, which is how the planner totals them.
 ### Browsing a slot properly
 
 A dropdown is the wrong shape for "which chest piece gives me the most poise for its weight". The
-table button in the toolbar opens every item for a slot as a sortable table — the same numbers as
+table button in the toolbar opens its own panel listing every item for a slot as a sortable table — the same numbers as
 the dropdown, plus derived columns a dropdown cannot show, **poise per weight** being the one that
 usually settles it.
 

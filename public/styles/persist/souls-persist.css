@@ -867,10 +867,15 @@
 
 /* -------------------------------------------------------------------- item browser */
 
-/* Wider than the compare view: a sortable table needs the room, and this is the one place you
-   are reading across many rows at once. */
-.sp-drawer--browse {
+/* Its own drawer, wider than the builds one: a sortable table needs the room, and this is the
+   one place you read across many rows at once. */
+#browse-drawer {
   width: 780px;
+}
+
+#browse-drawer .sp-browse__where {
+  color: #777;
+  font-weight: 400;
 }
 
 .sp-browse__controls {
@@ -925,9 +930,14 @@
   white-space: nowrap;
 }
 
-.sp-browse th:first-child,
-.sp-browse td:first-child {
+/* Prose reads left-aligned; only the numbers line up on the right. */
+.sp-browse th.sp-browse__text,
+.sp-browse td.sp-browse__text {
   text-align: left;
+}
+
+.sp-browse td:first-child {
+  min-width: 11em;
 }
 
 .sp-browse th:hover {
@@ -946,7 +956,7 @@
   white-space: nowrap;
 }
 
-.sp-browse td:first-child {
+.sp-browse td.sp-browse__text {
   white-space: normal;
 }
 

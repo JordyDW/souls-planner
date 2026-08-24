@@ -1763,9 +1763,9 @@
   function renderBrowse() {
     var slot = browseState.slot
     if (!slot) return
-    var pane = $('#builds-drawer .sp-pane--browse')
+    var pane = $('#browse-drawer')
     var columns = BROWSE_COLUMNS[slot.kind]
-    var term = ($('#builds-drawer .sp-browse__search').val() || '').toLowerCase()
+    var term = ($('#browse-drawer .sp-browse__search').val() || '').toLowerCase()
     var budget = browseState.fits ? weightBudget(slot) : null
     var equipped = $('#' + slot.id).val()
 
@@ -1795,6 +1795,7 @@
         .text(col.label + (sort.key === col.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''))
         .attr('data-sort', col.key)
         .toggleClass('sp-browse__sorted', sort.key === col.key)
+        .toggleClass('sp-browse__text', !!col.text)
         .appendTo(head)
     }
     table.append(head)
@@ -1806,7 +1807,7 @@
       for (var i = 0; i < columns.length; i++) {
         var column = columns[i]
         var value = row[column.key]
-        var cell = $('<td></td>')
+        var cell = $('<td></td>').toggleClass('sp-browse__text', !!column.text)
         if (column.text) {
           cell.text(value === undefined ? '' : value)
         } else {
@@ -1818,35 +1819,105 @@
       table.append(tr)
     }
 
+    pane.find('.sp-browse__where').text(' · ' + slot.label)
     pane.find('.sp-browse__count').text(rows.length + (rows.length === 1 ? ' item' : ' items'))
     pane.find('.sp-browse__body').empty().append(table)
     pane.find('.sp-browse__fits').prop('disabled', weightBudget(slot) === null)
   }
 
+  /* Its own drawer, not a third pane inside the saved-builds one. Browsing what could go in a
+     slot has nothing to do with the builds you have saved, and sharing the panel meant inheriting
+     its "Saved builds" heading and a "back to builds" link that made no sense. */
+  function buildBrowseDrawer() {
+    var markup =
+      '<aside id="browse-drawer" class="sp-drawer sp-drawer--browse" aria-hidden="true">' +
+      '<header class="sp-drawer__head">' +
+      '<h2>Items<span class="sp-browse__where"></span></h2>' +
+      '<button type="button" class="sp-drawer__close" title="Close (Esc)" aria-label="Close">&times;</button>' +
+      '</header>' +
+      '<div class="sp-drawer__body">' +
+      '<div class="sp-browse__controls">' +
+      '<select class="sp-browse__slot"></select>' +
+      '<input type="search" class="sp-browse__search" placeholder="Search" />' +
+      '<label class="sp-browse__fits-label">' +
+      '<input type="checkbox" class="sp-browse__fits" /> Only what fits' +
+      '</label>' +
+      '<span class="sp-browse__count"></span>' +
+      '</div>' +
+      '<div class="sp-browse__body"></div>' +
+      '</div>' +
+      '</aside>'
+
+    var el = $(markup).appendTo(document.body)
+
+    el.find('.sp-drawer__close').on('click', closeBrowse)
+
+    el.on('change', '.sp-browse__slot', function () {
+      var slot = slotById($(this).val())
+      if (!slot) return
+      browseState.slot = slot
+      browseState.sort = { key: 'name', dir: 1 }
+      renderBrowse()
+    })
+
+    el.on('input', '.sp-browse__search', renderBrowse)
+
+    el.on('change', '.sp-browse__fits', function () {
+      browseState.fits = $(this).is(':checked')
+      renderBrowse()
+    })
+
+    el.on('click', '.sp-browse th[data-sort]', function () {
+      var key = $(this).attr('data-sort')
+      if (browseState.sort.key === key) browseState.sort.dir = -browseState.sort.dir
+      else browseState.sort = { key: key, dir: key === 'name' ? 1 : -1 }
+      renderBrowse()
+    })
+
+    /* Equip in place and stay open, so you can try a few against each other. */
+    el.on('click', '.sp-browse__row', function () {
+      var slot = browseState.slot
+      if (!slot) return
+      $('#' + slot.id)
+        .val($(this).attr('data-value'))
+        .trigger('change.select2')
+        .trigger('change')
+      renderBrowse()
+    })
+
+    $(document).on('keydown', function (event) {
+      if (event.which === 27 && browseIsOpen()) closeBrowse()
+    })
+
+    return el
+  }
+
+  function browseIsOpen() {
+    return $('#browse-drawer').hasClass('sp-drawer--open')
+  }
+
   function openBrowse(slot) {
-    if (!$('#builds-drawer').length) buildDrawer()
+    if (!$('#browse-drawer').length) buildBrowseDrawer()
     browseState.slot = slot || browseState.slot || browseSlots[0]
     if (!browseState.slot) return
 
-    $('#builds-drawer').addClass('sp-drawer--open sp-drawer--browse').attr('aria-hidden', 'false')
-    $('#builds-drawer .sp-pane--list, #builds-drawer .sp-pane--compare').hide()
-    $('#builds-drawer .sp-drawer__foot').hide()
-    $('#builds-drawer .sp-pane--browse').show()
+    /* Both are anchored to the same edge, so only one is up at a time. */
+    closeDrawer()
 
-    var picker = $('#builds-drawer .sp-browse__slot').empty()
+    var picker = $('#browse-drawer .sp-browse__slot').empty()
     for (var i = 0; i < browseSlots.length; i++) {
-      picker.append(
-        $('<option></option>').attr('value', browseSlots[i].id).text(browseSlots[i].label)
-      )
+      picker.append($('<option></option>').attr('value', browseSlots[i].id).text(browseSlots[i].label))
     }
     picker.val(browseState.slot.id)
+
+    $('#browse-drawer').addClass('sp-drawer--open').attr('aria-hidden', 'false')
+    $('#sp-button-browse').addClass('sp-button--active')
     renderBrowse()
   }
 
   function closeBrowse() {
-    $('#builds-drawer').removeClass('sp-drawer--browse')
-    $('#builds-drawer .sp-pane--browse').hide()
-    showList()
+    $('#browse-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
+    $('#sp-button-browse').removeClass('sp-button--active')
   }
 
   function slotById(id) {
@@ -2265,18 +2336,6 @@
       '<p class="sp-empty">No saved builds yet. Use the save button to keep this one.</p>' +
       '</div>' +
       '<div class="sp-pane sp-pane--compare"></div>' +
-      '<div class="sp-pane sp-pane--browse">' +
-      '<button type="button" class="sp-back sp-browse__back">&larr; Back to builds</button>' +
-      '<div class="sp-browse__controls">' +
-      '<select class="sp-browse__slot"></select>' +
-      '<input type="search" class="sp-browse__search" placeholder="Search" />' +
-      '<label class="sp-browse__fits-label">' +
-      '<input type="checkbox" class="sp-browse__fits" /> Only what fits' +
-      '</label>' +
-      '<span class="sp-browse__count"></span>' +
-      '</div>' +
-      '<div class="sp-browse__body"></div>' +
-      '</div>' +
       '</div>' +
       '<footer class="sp-drawer__foot">' +
       '<button class="default" id="builds-drawer__save-as">Save current as new</button>' +
@@ -2367,41 +2426,7 @@
       runCompare(picked[0], picked[1])
     })
 
-    el.on('click', '.sp-browse__back', closeBrowse)
-    el.on('click', '.sp-back:not(.sp-browse__back)', showList)
-
-    el.on('change', '.sp-browse__slot', function () {
-      var slot = slotById($(this).val())
-      if (slot) {
-        browseState.slot = slot
-        browseState.sort = { key: 'name', dir: 1 }
-        renderBrowse()
-      }
-    })
-
-    el.on('input', '.sp-browse__search', renderBrowse)
-    el.on('change', '.sp-browse__fits', function () {
-      browseState.fits = $(this).is(':checked')
-      renderBrowse()
-    })
-
-    el.on('click', '.sp-browse th[data-sort]', function () {
-      var key = $(this).attr('data-sort')
-      if (browseState.sort.key === key) browseState.sort.dir = -browseState.sort.dir
-      else browseState.sort = { key: key, dir: key === 'name' ? 1 : -1 }
-      renderBrowse()
-    })
-
-    /* Equip in place and stay open, so you can try a few against each other. */
-    el.on('click', '.sp-browse__row', function () {
-      var slot = browseState.slot
-      if (!slot) return
-      $('#' + slot.id)
-        .val($(this).attr('data-value'))
-        .trigger('change.select2')
-        .trigger('change')
-      renderBrowse()
-    })
+    el.on('click', '.sp-back', showList)
 
     el.find('#builds-drawer__save-as').on('click', function () {
       if (saveCurrent(true)) renderRows()
@@ -2521,6 +2546,7 @@
   }
 
   function openDrawer() {
+    closeBrowse()
     if (!$('#builds-drawer').length) {
       buildDrawer()
       $('#builds-drawer .sp-sort').val(store.get(KEY_SORT, 'recent'))
@@ -2531,8 +2557,6 @@
   }
 
   function closeDrawer() {
-    $('#builds-drawer').removeClass('sp-drawer--browse')
-    $('#builds-drawer .sp-pane--browse').hide()
     showList()
     $('#builds-drawer').removeClass('sp-drawer--open').attr('aria-hidden', 'true')
     $('#sp-button-builds').removeClass('sp-button--active')
@@ -2552,7 +2576,7 @@
 
     $('<button type="button" class="material-icons" id="sp-button-browse" title="Browse and compare everything for a slot">table_rows</button>')
       .on('click', function () {
-        if ($('#builds-drawer').hasClass('sp-drawer--browse')) closeBrowse()
+        if (browseIsOpen()) closeBrowse()
         else openBrowse()
       })
       .appendTo(options)
