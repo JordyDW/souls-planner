@@ -1980,13 +1980,14 @@
       '<button type="button" class="sp-drawer__close" title="Close (Esc)" aria-label="Close">&times;</button>' +
       '</header>' +
       '<div class="sp-drawer__body">' +
-      '<p class="sp-share__hint">A picture for posting where a link would not help, and the same ' +
-      'thing as text.</p>' +
+      '<p class="sp-share__hint">A picture for posting where a link would not help, the same thing ' +
+      'as text, or a full readout to hand to an AI assistant.</p>' +
       '<div class="sp-share__preview"></div>' +
       '</div>' +
       '<footer class="sp-drawer__foot">' +
       '<button class="default" id="share-drawer__png">Download image</button>' +
       '<button id="share-drawer__markdown">Copy as text</button>' +
+      '<button id="share-drawer__agent">Copy for an AI</button>' +
       '<button id="share-drawer__link">Copy link</button>' +
       '</footer>' +
       '</aside>'
@@ -2011,6 +2012,10 @@
 
     el.find('#share-drawer__markdown').on('click', function () {
       if (shareSummary) copyToClipboard(buildMarkdown(shareSummary))
+    })
+
+    el.find('#share-drawer__agent').on('click', function () {
+      if (shareSummary) copyToClipboard(agentReport(shareSummary))
     })
 
     el.find('#share-drawer__link').on('click', function () {
@@ -2125,15 +2130,17 @@
         var id = list.ids[i]
         var $select = $('#' + id)
         var value = $select.val()
-        var parked = parkedSlotValues(id)
-        var text = optionText($select, parked ? parked[0] : value)
-        if (!text || value === emptyValue($select)) {
-          if (!parked) continue
-        }
+        var parkedValues = parkedSlotValues(id)
+        var empty = emptyValue($select)
+        /* Parking an already-empty slot is not worth reporting as "Naked [parked]". */
+        if (parkedValues && parkedValues[0] === empty) continue
+        if (!parkedValues && value === empty) continue
+        var text = optionText($select, parkedValues ? parkedValues[0] : value)
+        if (!text) continue
 
         for (var e = 0; e < list.extras.length; e++) {
           var suffix = list.extras[e]
-          var extraValue = parked ? parked[e + 1] : $('#' + id + suffix).val()
+          var extraValue = parkedValues ? parkedValues[e + 1] : $('#' + id + suffix).val()
           if (extraValue === undefined) continue
           if (suffix === '-reinforce') {
             if (Number(extraValue) > 0) text += ' +' + extraValue
@@ -2142,7 +2149,7 @@
             if (extraText && !/^no /i.test(extraText)) text += ' (' + extraText + ')'
           }
         }
-        rows.push({ label: slotLabel(id), value: text + (parked ? ' [parked]' : '') })
+        rows.push({ label: slotLabel(id), value: text + (parkedValues ? ' [parked]' : '') })
       }
     }
     return rows
@@ -2287,6 +2294,105 @@
     ctx.fillText(summary.game, pad, height - 12)
 
     return canvas
+  }
+
+  /* A handoff for an assistant, which wants different things from a forum post: everything,
+     unambiguously, with the numbers it would otherwise have to ask for. The markdown above is
+     deliberately short and pretty; this is deliberately complete. */
+  function agentReport(summary) {
+    var build = currentBuild()
+    var lines = []
+
+    lines.push(
+      "Here is my " + summary.game + " character, exported from a planner. Please use these exact " +
+      'numbers rather than estimating, and tell me if something looks wrong.'
+    )
+    lines.push('')
+    lines.push('CHARACTER')
+    lines.push('  Name: ' + summary.name + '   Level: ' + summary.level)
+    if (summary.meta.length) lines.push('  ' + summary.meta.join('   '))
+    if (summary.notes) lines.push('  Notes: ' + summary.notes)
+
+    lines.push('')
+    lines.push('ATTRIBUTES (total, including ring and buff effects)')
+    for (var a = 0; a < summary.attributes.length; a++) {
+      lines.push('  ' + summary.attributes[a].label + ': ' + summary.attributes[a].value)
+    }
+
+    lines.push('')
+    lines.push('EQUIPMENT')
+    if (!summary.equipment.length) lines.push('  nothing equipped')
+    for (var e = 0; e < summary.equipment.length; e++) {
+      lines.push('  ' + summary.equipment[e].label + ': ' + summary.equipment[e].value)
+    }
+
+    /* Requirements the character does not meet are the single most common reason a build does not
+       work, and an assistant cannot infer them from the numbers above. */
+    var short = requirementShortfalls()
+    if (short.length) {
+      lines.push('')
+      lines.push('REQUIREMENTS NOT MET')
+      for (var r = 0; r < short.length; r++) lines.push('  ' + short[r])
+    }
+
+    var toggles = []
+    for (var flag in TOGGLE_IDS) {
+      if (!TOGGLE_IDS.hasOwnProperty(flag) || !build.hasOwnProperty(flag)) continue
+      if (Number(build[flag]) === 1) toggles.push(prettify(flag))
+    }
+    if (toggles.length) {
+      lines.push('')
+      lines.push('ACTIVE: ' + toggles.join(', '))
+    }
+
+    lines.push('')
+    lines.push('RESULTING STATS (calculated by the planner)')
+    var results = readResults(document)
+    for (var i = 0; i < results.length; i++) {
+      lines.push('  ' + results[i].label + ': ' + results[i].value)
+    }
+
+    var missing = unownedInBuild()
+    if (missing.length || ownedCount()) {
+      lines.push('')
+      lines.push('INVENTORY')
+      lines.push('  ' + ownedCount() + ' items marked as owned.')
+      if (missing.length) {
+        lines.push('  Equipped but not marked as owned: ' + missing.join(', '))
+      }
+    }
+
+    lines.push('')
+    lines.push('Planner link (opens this exact build): ' + summary.link)
+    return lines.join('\n')
+  }
+
+  /* Every equipped weapon whose requirements the character does not meet. */
+  function requirementShortfalls() {
+    var out = []
+    var lists = adapter.lists || []
+    for (var l = 0; l < lists.length; l++) {
+      if (lists[l].key !== 'weapons') continue
+      var list = resolveListIds(lists[l])
+      for (var i = 0; i < list.ids.length; i++) {
+        var $select = $('#' + list.ids[i])
+        var value = $select.val()
+        if (!value || value === emptyValue($select)) continue
+        var info = askInfo('weapon', value)
+        if (!info || !info.req) continue
+        var lacking = []
+        for (var k = 0; k < REQUIREMENT_KEYS.length; k++) {
+          var key = REQUIREMENT_KEYS[k]
+          var need = info.req[key] || 0
+          var have = totalStat(key)
+          if (need && have < need) lacking.push(key + ' ' + have + '/' + need)
+        }
+        if (lacking.length) {
+          out.push(slotLabel(list.ids[i]) + ' ' + optionText($select, value) + ' needs ' + lacking.join(', '))
+        }
+      }
+    }
+    return out
   }
 
   function buildMarkdown(summary) {

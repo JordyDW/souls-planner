@@ -100,6 +100,12 @@ The image button opens a share panel with a picture of the build — name, level
 gear and the headline numbers — for posting where a link is the wrong answer, like Discord or
 Reddit. From there you can download it as a PNG, copy the same thing as text, or copy the link.
 
+**Copy for an AI** produces a different, fuller readout meant to be pasted to an assistant: every
+attribute as a total, all equipment including infusions and parked slots, every calculated stat,
+which weapon requirements you do not meet, what is active, and what you have equipped but not
+marked as owned. It opens by asking the assistant to use the exact numbers rather than estimate,
+because the requirements and derived stats are precisely what it would otherwise guess at.
+
 The card is drawn straight onto a canvas rather than through a DOM-to-image library, so there is
 no extra dependency and it keeps working offline. Parked slots are labelled as such rather than
 silently omitted.
