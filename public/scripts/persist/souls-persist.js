@@ -1809,8 +1809,20 @@
       { key: 'name', label: 'Name', text: true },
       { key: 'weight', label: 'Wt', digits: 1 },
       { key: 'effect', label: 'Effect', text: true }
+    ],
+    /* Everything at once, so a name can be searched for without knowing which slot it belongs to.
+       The per-kind columns cannot all fit side by side, so this keeps what every item has - where
+       it goes, what it weighs - plus the two armour figures, blank on anything that has none. */
+    all: [
+      { key: 'where', label: 'Where', text: true },
+      { key: 'name', label: 'Name', text: true },
+      { key: 'weight', label: 'Wt', digits: 1 },
+      { key: 'poise', label: 'Poise', digits: 1 },
+      { key: 'defence', label: 'Def', digits: 1 }
     ]
   }
+
+  var ALL_SLOT = { id: '*', kind: 'all', label: 'All items' }
 
   var BROWSE_GROUPS = { armor: 'Armor', weapon: 'Weapons', ring: 'Rings', spell: 'Spells' }
 
@@ -1837,6 +1849,11 @@
     if (!picker.length) return
     picker.empty()
 
+    /* First, because "which slot is that in again" is the question it answers. */
+    picker.append(
+      $('<option></option>').attr('value', ALL_SLOT.id).text(ALL_SLOT.label + ' · search everything')
+    )
+
     var groups = {}
     for (var i = 0; i < browseSlots.length; i++) {
       var slot = browseSlots[i]
@@ -1859,12 +1876,77 @@
     if (browseState.slot) picker.val(browseState.slot.id)
   }
 
+  /* Working out every row means constructing a model object per item - the best part of a second
+     on Dark Souls 3 - and doing it when the panel is first opened made that click feel broken. It
+     is done ahead of time instead, one slot per turn of the event loop so nothing blocks, well
+     after the page has settled. */
+  function warmBrowseCache() {
+    var index = 0
+
+    function step() {
+      if (index >= browseSlots.length) {
+        allRows()
+        return
+      }
+      browseRows(browseSlots[index++])
+      window.setTimeout(step, 0)
+    }
+
+    window.setTimeout(step, 1200)
+  }
+
   function registerBrowseSlot(id, kind) {
     browseSlots.push({ id: id, kind: kind, label: slotLabel(id) })
   }
 
   /* Everything the slot offers, enriched with the same accessors the dropdown columns use. */
+  /* Rows come from the option list and the game's model classes, both fixed for the life of the
+     page, so each slot is worked out once and kept. It matters here: building a row means
+     constructing a model object per item, and the everything view on Dark Souls 3 is 885 of them.
+     Without this, every keystroke in the search box paid for all of it again. */
+  var browseRowCache = {}
+
+  /* Every item in the game, once. Six weapon slots share one list and four ring slots share
+     another, so the same weapon would otherwise appear six times; the slots an item turned up in
+     are remembered instead, which is also what decides whether it can be equipped from here
+     without guessing. */
+  function allRows() {
+    if (browseRowCache[ALL_SLOT.id]) return browseRowCache[ALL_SLOT.id]
+
+    var seen = {}
+    var rows = []
+
+    for (var s = 0; s < browseSlots.length; s++) {
+      var slot = browseSlots[s]
+      var slotRows = browseRows(slot)
+      for (var r = 0; r < slotRows.length; r++) {
+        var row = slotRows[r]
+        var key = slot.kind + '|' + row.value
+        if (seen[key]) {
+          seen[key].slots.push(slot.id)
+          continue
+        }
+        var copy = $.extend({}, row)
+        copy.kind = slot.kind
+        copy.slots = [slot.id]
+        seen[key] = copy
+        rows.push(copy)
+      }
+    }
+
+    /* Named by its slot where there is only one - "Head" - and by its family where there are
+       several, since "Left hand 1" would be an arbitrary pick out of six. */
+    for (var i = 0; i < rows.length; i++) {
+      var only = rows[i].slots.length === 1 ? slotById(rows[i].slots[0]) : null
+      rows[i].where = only ? only.label : BROWSE_GROUPS[rows[i].kind] || 'Other'
+    }
+
+    browseRowCache[ALL_SLOT.id] = rows
+    return rows
+  }
+
   function browseRows(slot) {
+    if (browseRowCache[slot.id]) return browseRowCache[slot.id]
     var $select = $('#' + slot.id)
     var empty = emptyValue($select)
     var rows = []
@@ -1891,6 +1973,7 @@
       }
       rows.push(row)
     })
+    browseRowCache[slot.id] = rows
     return rows
   }
 
@@ -1903,21 +1986,54 @@
     return left + (current && current.weight ? current.weight : 0)
   }
 
+  function esc(text) {
+    return String(text === undefined || text === null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  /* One budget per slot rather than one per row: "only what fits" counts the item the slot is
+     already carrying, and in the everything view a row's slot varies from row to row. */
+  function budgetsBySlot() {
+    var out = {}
+    for (var i = 0; i < browseSlots.length; i++) {
+      out[browseSlots[i].id] = weightBudget(browseSlots[i])
+    }
+    return out
+  }
+
   function renderBrowse() {
     var slot = browseState.slot
     if (!slot) return
     var pane = $('#browse-drawer')
+    var everything = slot.kind === 'all'
     var columns = BROWSE_COLUMNS[slot.kind]
     var term = ($('#browse-drawer .sp-browse__search').val() || '').toLowerCase()
-    var budget = browseState.fits ? weightBudget(slot) : null
-    var equipped = $('#' + slot.id).val()
+    var budgets = browseState.fits ? budgetsBySlot() : null
+    var budget = browseState.fits && !everything ? weightBudget(slot) : null
 
-    var rows = browseRows(slot).filter(function (row) {
-      if (term && row.name.toLowerCase().indexOf(term) === -1) return false
-      if (budget !== null && row.weight > budget) return false
-      if (browseState.ownedOnly && !isOwned(row.value)) return false
-      return true
-    })
+    /* In the everything view an item counts as equipped if it is in any of the slots it fits. */
+    var equipped = {}
+    if (everything) {
+      for (var e = 0; e < browseSlots.length; e++) equipped[$('#' + browseSlots[e].id).val()] = browseSlots[e].id
+    } else {
+      equipped[$('#' + slot.id).val()] = slot.id
+    }
+
+    var source = everything ? allRows() : browseRows(slot)
+    var rows = []
+    for (var f = 0; f < source.length; f++) {
+      var candidate = source[f]
+      if (term && candidate.name.toLowerCase().indexOf(term) === -1) continue
+      if (browseState.ownedOnly && !isOwned(everything ? candidate.kind : slot.kind, candidate.value)) continue
+      if (budgets) {
+        var allowance = everything ? budgets[candidate.slots[0]] : budget
+        if (allowance !== null && allowance !== undefined && candidate.weight > allowance) continue
+      }
+      rows.push(candidate)
+    }
 
     var sort = browseState.sort
     rows.sort(function (a, b) {
@@ -1931,71 +2047,92 @@
       return ((x || 0) - (y || 0)) * sort.dir
     })
 
-    var table = $('<table class="sp-browse"></table>')
-    var head = $('<tr></tr>')
-    $('<th class="sp-browse__own-head" title="Mark what you have"></th>').text('Own').appendTo(head)
-    $('<th class="sp-browse__equip-head"></th>').appendTo(head)
+    /* Built as one string and handed over in a single assignment. Nine hundred rows of five cells
+       is four and a half thousand elements, and creating them one jQuery object at a time was
+       what made the everything view feel slow rather than the data behind it. */
+    var html = ['<table class="sp-browse"><tr>']
+    html.push('<th class="sp-browse__own-head" title="Mark what you have">Own</th>')
+    html.push('<th class="sp-browse__equip-head"></th>')
+
     for (var c = 0; c < columns.length; c++) {
       var col = columns[c]
-      $('<th></th>')
-        .text(col.label + (sort.key === col.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''))
-        .attr('data-sort', col.key)
-        .toggleClass('sp-browse__sorted', sort.key === col.key)
-        .toggleClass('sp-browse__text', !!col.text)
-        .appendTo(head)
+      var arrow = sort.key === col.key ? (sort.dir > 0 ? ' \u25b2' : ' \u25bc') : ''
+      html.push(
+        '<th data-sort="' + esc(col.key) + '" class="' +
+          (sort.key === col.key ? 'sp-browse__sorted ' : '') +
+          (col.text ? 'sp-browse__text' : '') + '">' + esc(col.label + arrow) + '</th>'
+      )
     }
-    table.append(head)
+    html.push('</tr>')
 
     for (var r = 0; r < rows.length; r++) {
       var row = rows[r]
-      var tr = $('<tr class="sp-browse__row"></tr>').attr('data-value', row.value)
-      if (row.value === equipped) tr.addClass('sp-browse__row--equipped')
-      var ownCell = $('<td class="sp-browse__own-cell"></td>').append(
-        $('<input type="checkbox" class="sp-browse__own" />').prop('checked', isOwned(row.value))
+      var kind = everything ? row.kind : slot.kind
+      var here = equipped[row.value]
+      var target = everything ? (here || row.slots[0]) : slot.id
+      /* Armour belongs to one slot, so it can be equipped straight from the everything view. A
+         weapon fits six slots and a ring four - choosing one would be a guess, so those offer to
+         take you to the slot instead. */
+      var single = !everything || row.slots.length === 1
+
+      html.push(
+        '<tr class="sp-browse__row' + (here ? ' sp-browse__row--equipped' : '') +
+          '" data-value="' + esc(row.value) + '" data-kind="' + esc(kind) + '">'
       )
-      if (slot.kind === 'armor' && setSiblings(row.value).length > 1) {
-        ownCell.append(
-          $('<button type="button" class="sp-browse__set" title="Own the whole set">set</button>')
-        )
+      html.push('<td class="sp-browse__own-cell"><input type="checkbox" class="sp-browse__own"' + (isOwned(kind, row.value) ? ' checked' : '') + ' />')
+      if (kind === 'armor' && setSiblings(row.value).length > 1) {
+        html.push('<button type="button" class="sp-browse__set" title="Own the whole set">set</button>')
       }
-      /* Equipping is its own button rather than the whole row being clickable. A row-wide click
-         did two things at once - put the item in the slot and, through the mark-what-you-equip
-         rule, add it to your inventory - with nothing on screen saying either would happen, and
-         no way to sort or read a row without triggering both. */
-      ownCell.appendTo(tr)
-      $('<td class="sp-browse__equip-cell"></td>')
-        .append(
-          $('<button type="button" class="sp-browse__equip"></button>')
-            .text(row.value === equipped ? 'Equipped' : 'Equip')
-            .attr('title', row.value === equipped ? 'Already in this slot' : 'Put this in ' + slot.label)
-            .prop('disabled', row.value === equipped)
-        )
-        .appendTo(tr)
+      html.push('</td>')
+
+      html.push('<td class="sp-browse__equip-cell">')
+      if (here) {
+        html.push('<button type="button" class="sp-browse__equip" disabled title="Already in ' + esc(slotById(here) ? slotById(here).label : 'this slot') + '">Equipped</button>')
+      } else if (single) {
+        html.push('<button type="button" class="sp-browse__equip" data-slot="' + esc(target) + '" title="Put this in ' + esc(slotById(target) ? slotById(target).label : slot.label) + '">Equip</button>')
+      } else {
+        html.push('<button type="button" class="sp-browse__equip sp-browse__show" data-slot="' + esc(row.slots[0]) + '" title="Open the slots this goes in, so you can pick which one">Show</button>')
+      }
+      html.push('</td>')
+
       for (var i = 0; i < columns.length; i++) {
         var column = columns[i]
         var value = row[column.key]
-        var cell = $('<td></td>').toggleClass('sp-browse__text', !!column.text)
         if (column.text) {
-          cell.text(value === undefined ? '' : value)
+          html.push('<td class="sp-browse__text">' + esc(value) + '</td>')
+        } else if (value === undefined || value === null) {
+          html.push('<td>\u2013</td>')
         } else {
-          cell.text(value === undefined || value === null ? '–' : Number(value).toFixed(column.digits))
-          if (column.requirement && value && totalStat(column.key) < value) cell.addClass('sp-browse__short')
+          var short = column.requirement && value && totalStat(column.key) < value
+          html.push('<td' + (short ? ' class="sp-browse__short"' : '') + '>' + Number(value).toFixed(column.digits) + '</td>')
         }
-        tr.append(cell)
       }
-      table.append(tr)
+      html.push('</tr>')
     }
+    html.push('</table>')
 
-    browseState.shown = rows.map(function (row) {
-      return row.value
+    browseState.shown = rows.map(function (item) {
+      return { kind: everything ? item.kind : slot.kind, value: item.value }
     })
+
+    pane.find('.sp-browse__body')[0].innerHTML = html.join('')
 
     pane.find('.sp-browse__where').text(' · ' + slot.label)
     pane.find('.sp-browse__count').text(
       rows.length + (rows.length === 1 ? ' item' : ' items') + ' · ' + ownedCount() + ' owned'
     )
-    pane.find('.sp-browse__body').empty().append(table)
-    pane.find('.sp-browse__fits').prop('disabled', weightBudget(slot) === null)
+    pane.find('.sp-browse__fits').prop('disabled', everything ? false : weightBudget(slot) === null)
+
+    /* Naming the count matters most here: in the everything view "all shown" can be every item in
+       the game, and the button used to say the same thing whether it meant four pieces or 885. */
+    var allShownOwned = rows.length > 0
+    for (var m = 0; m < rows.length; m++) {
+      if (!isOwned(everything ? rows[m].kind : slot.kind, rows[m].value)) allShownOwned = false
+    }
+    pane
+      .find('.sp-browse__mark')
+      .prop('disabled', !rows.length)
+      .text((allShownOwned ? 'Unmark ' : 'Mark ') + rows.length + ' shown')
   }
 
   /* Its own drawer, not a third pane inside the saved-builds one. Browsing what could go in a
@@ -2039,7 +2176,16 @@
       renderBrowse()
     })
 
-    el.on('input', '.sp-browse__search', renderBrowse)
+    /* Debounced: a redraw is a few hundred rows of table, and typing "knight" should cost one of
+       them rather than six. */
+    var searchTimer = null
+    el.on('input', '.sp-browse__search', function () {
+      if (searchTimer) window.clearTimeout(searchTimer)
+      searchTimer = window.setTimeout(function () {
+        searchTimer = null
+        renderBrowse()
+      }, 120)
+    })
 
     el.on('change', '.sp-browse__fits', function () {
       browseState.fits = $(this).is(':checked')
@@ -2056,8 +2202,8 @@
     el.on('click', '.sp-browse__mark', function () {
       var values = browseState.shown || []
       var everyOneOwned = values.length > 0
-      for (var i = 0; i < values.length; i++) if (!isOwned(values[i])) everyOneOwned = false
-      for (var j = 0; j < values.length; j++) setOwned(values[j], !everyOneOwned)
+      for (var i = 0; i < values.length; i++) if (!isOwned(values[i].kind, values[i].value)) everyOneOwned = false
+      for (var j = 0; j < values.length; j++) setOwned(values[j].kind, values[j].value, !everyOneOwned)
       syncOwnedButton()
       updateStatus()
       renderBrowse()
@@ -2068,8 +2214,8 @@
       event.stopPropagation()
       var pieces = setSiblings($(this).closest('.sp-browse__row').attr('data-value'))
       var allOwned = true
-      for (var i = 0; i < pieces.length; i++) if (!isOwned(pieces[i])) allOwned = false
-      for (var j = 0; j < pieces.length; j++) setOwned(pieces[j], !allOwned)
+      for (var i = 0; i < pieces.length; i++) if (!isOwned('armor', pieces[i])) allOwned = false
+      for (var j = 0; j < pieces.length; j++) setOwned('armor', pieces[j], !allOwned)
       syncOwnedButton()
       updateStatus()
       renderBrowse()
@@ -2078,7 +2224,8 @@
 
     el.on('change', '.sp-browse__own', function (event) {
       event.stopPropagation()
-      setOwned($(this).closest('.sp-browse__row').attr('data-value'), $(this).is(':checked'))
+      var $row = $(this).closest('.sp-browse__row')
+      setOwned($row.attr('data-kind'), $row.attr('data-value'), $(this).is(':checked'))
       syncOwnedButton()
       updateStatus()
     })
@@ -2097,13 +2244,28 @@
 
     /* Equip in place and stay open, so you can try a few against each other. */
     el.on('click', '.sp-browse__equip', function () {
-      var slot = browseState.slot
-      if (!slot) return
-      $('#' + slot.id)
+      /* The everything view equips into the slot the item belongs to, which is not the slot the
+         table is showing - hence the target on the button rather than reading browseState. */
+      var target = $(this).attr('data-slot') || (browseState.slot && browseState.slot.id)
+      if (!target || target === ALL_SLOT.id) return
+      $('#' + target)
         .val($(this).closest('.sp-browse__row').attr('data-value'))
         .trigger('change.select2')
         .trigger('change')
       /* The change above is what redraws this table, through scheduleBrowseRefresh. */
+    })
+
+    /* Where the item fits more than one slot, "Show" hands you over to that family of slots with
+       the name already in the search box, so you choose the hand or the finger yourself. */
+    el.on('click', '.sp-browse__show', function (event) {
+      event.stopPropagation()
+      var slot = slotById($(this).attr('data-slot'))
+      if (!slot) return
+      browseState.slot = slot
+      browseState.sort = { key: 'name', dir: 1 }
+      el.find('.sp-browse__search').val($(this).closest('.sp-browse__row').find('.sp-browse__text').eq(1).text())
+      renderSlotPicker()
+      renderBrowse()
     })
 
     $(document).on('keydown', function (event) {
@@ -2247,7 +2409,9 @@
 
   function openBrowse(slot) {
     if (!$('#browse-drawer').length) buildBrowseDrawer()
-    browseState.slot = slot || browseState.slot || browseSlots[0]
+    /* Everything, unless a slot was asked for or one was already being looked at: "where is that
+       item" is the question you arrive with more often than "what else fits here". */
+    browseState.slot = slot || browseState.slot || ALL_SLOT
     if (!browseState.slot) return
 
     /* They are all anchored to the same edge, so only one is up at a time. */
@@ -2268,6 +2432,7 @@
   }
 
   function slotById(id) {
+    if (id === ALL_SLOT.id) return ALL_SLOT
     for (var i = 0; i < browseSlots.length; i++) if (browseSlots[i].id === id) return browseSlots[i]
     return null
   }
@@ -2628,13 +2793,74 @@
   var owned = store.get(KEY.owned, null) || {}
   var ownedFilter = store.get(KEY.ownedFilter, false) === true
 
-  function isOwned(value) {
-    return Object.prototype.hasOwnProperty.call(owned, String(value))
+  /* An item is its kind as well as its id. The games reuse ids across lists - on Dark Souls 3
+     Vilhelm's Helm and the Buckler are both 20000000, and Black Hand Hat and the Torch are both
+     23000000 - so an inventory keyed by the bare id had marking a shield mark a helmet, and
+     unmarking one unmark the other. */
+  var OWN_KINDS = { armor: 'armor', weapons: 'weapon', rings: 'ring', spells: 'spell' }
+  var ownKindBySelect = null
+
+  function ownKey(kind, value) {
+    return kind + '|' + String(value)
   }
 
-  function setOwned(value, on) {
-    if (on) owned[String(value)] = 1
-    else delete owned[String(value)]
+  function kindOfSelect(id) {
+    if (!ownKindBySelect) {
+      ownKindBySelect = {}
+      var lists = adapter.lists || []
+      for (var l = 0; l < lists.length; l++) {
+        var kind = OWN_KINDS[lists[l].key]
+        if (!kind) continue
+        var resolved = resolveListIds(lists[l])
+        for (var i = 0; i < resolved.ids.length; i++) ownKindBySelect[resolved.ids[i]] = kind
+      }
+    }
+    return ownKindBySelect[id] || null
+  }
+
+  function isOwned(kind, value) {
+    if (!kind) return false
+    return Object.prototype.hasOwnProperty.call(owned, ownKey(kind, value))
+  }
+
+  function setOwned(kind, value, on) {
+    if (!kind) return
+    if (on) owned[ownKey(kind, value)] = 1
+    else delete owned[ownKey(kind, value)]
+    store.set(KEY.owned, owned)
+  }
+
+  /* Inventories written before ids were qualified carry bare ids. Each is resolved against the
+     lists it could have come from; where an id is ambiguous, recording both is the only honest
+     reading - it is what the old code meant by that key anyway. */
+  function migrateOwned() {
+    var bare = []
+    for (var key in owned) {
+      if (Object.prototype.hasOwnProperty.call(owned, key) && key.indexOf('|') === -1) bare.push(key)
+    }
+    if (!bare.length) return
+
+    var lists = adapter.lists || []
+    for (var b = 0; b < bare.length; b++) {
+      for (var l = 0; l < lists.length; l++) {
+        var kind = OWN_KINDS[lists[l].key]
+        if (!kind) continue
+        /* Every select in the list, not just the first: the four armour slots hold four
+           different lists, so probing only the head slot loses every chest, hand and leg piece. */
+        var resolved = resolveListIds(lists[l])
+        for (var i = 0; i < resolved.ids.length; i++) {
+          var $probe = $('#' + resolved.ids[i])
+          if (!$probe.length) continue
+          /* jshint loopfunc:true */
+          var wanted = bare[b]
+          if ($probe.find('option').filter(function () { return this.value === wanted }).length) {
+            owned[ownKey(kind, wanted)] = 1
+            break
+          }
+        }
+      }
+      delete owned[bare[b]]
+    }
     store.set(KEY.owned, owned)
   }
 
@@ -2644,20 +2870,35 @@
      trousers, so dividing by 10000 groups them. That turns owning a set into one click instead of
      four searches. Dark Souls 2 keys its items by name rather than number, so there it degrades to
      marking the single piece. */
-  function setSiblings(value) {
-    var id = parseInt(value, 10)
-    if (isNaN(id) || !adapter.lists || !adapter.lists.length) return [value]
-    var key = Math.floor(id / 10000)
-    var found = []
+  /* Worked out once. This used to walk every armour option on every call, and the browser calls
+     it once per row while rendering - which is most of what made the everything view take a
+     second to draw. */
+  var setBuckets = null
+
+  function armourSets() {
+    if (setBuckets) return setBuckets
+    setBuckets = {}
+    if (!adapter.lists || !adapter.lists.length) return setBuckets
+
     $(adapter.lists[0].selector).each(function () {
       $(this)
         .find('option')
         .each(function () {
-          var other = parseInt(this.value, 10)
-          if (!isNaN(other) && Math.floor(other / 10000) === key) found.push(this.value)
+          var id = parseInt(this.value, 10)
+          if (isNaN(id)) return
+          var key = Math.floor(id / 10000)
+          if (!setBuckets[key]) setBuckets[key] = []
+          if (setBuckets[key].indexOf(this.value) === -1) setBuckets[key].push(this.value)
         })
     })
-    return found.length ? found : [value]
+    return setBuckets
+  }
+
+  function setSiblings(value) {
+    var id = parseInt(value, 10)
+    if (isNaN(id)) return [value]
+    var found = armourSets()[Math.floor(id / 10000)]
+    return found && found.length ? found : [value]
   }
 
   function ownedCount() {
@@ -2686,14 +2927,15 @@
         var $select = $('#' + list.ids[i])
         var value = $select.val()
         if (!value || value === '-1' || value === emptyValue($select)) continue
-        if (isOwned(value)) continue
-        setOwned(value, true)
+        if (isOwned(OWN_KINDS[lists[l].key], value)) continue
+        setOwned(OWN_KINDS[lists[l].key], value, true)
         marked++
       }
       /* Parked slots hold something you own too - it is just not on you right now. */
       for (var p in parked) {
-        if (parked.hasOwnProperty(p) && parked[p][0] && !isOwned(parked[p][0])) {
-          setOwned(parked[p][0], true)
+        var parkedKind = kindOfSelect(p)
+        if (parked.hasOwnProperty(p) && parked[p][0] && parkedKind && !isOwned(parkedKind, parked[p][0])) {
+          setOwned(parkedKind, parked[p][0], true)
           marked++
         }
       }
@@ -2711,7 +2953,7 @@
         var $select = $('#' + list.ids[i])
         var value = $select.val()
         if (!value || value === '-1' || value === emptyValue($select)) continue
-        if (!isOwned(value)) missing.push(optionText($select, value) || value)
+        if (!isOwned(OWN_KINDS[lists[l].key], value)) missing.push(optionText($select, value) || value)
       }
     }
     return missing
@@ -2726,7 +2968,7 @@
     if (!data.id || data.id === '-1') return data
     /* Whatever is equipped stays selectable even if you have not marked it. */
     if (String($select.val()) === String(data.id)) return data
-    return isOwned(data.id) ? data : null
+    return isOwned(kindOfSelect($select.attr('id')), data.id) ? data : null
   }
 
   function makeMatcher($select) {
@@ -3685,6 +3927,9 @@
       return
     }
 
+    /* Before anything reads the inventory - the toolbar draws the status from it. */
+    migrateOwned()
+
     /* Before the toolbar, so the button can be dropped when a page has no tips to show. */
     var hasTips = buildTipsDrawer()
     buildToolbar()
@@ -3696,6 +3941,8 @@
     buildToggles()
     applyParked(restoredParked)
     decorateDropdowns()
+
+    warmBrowseCache()
 
     /* Choosing something for a parked slot obviously means you want it back. */
     $('.planner').on('change', 'select', function () {

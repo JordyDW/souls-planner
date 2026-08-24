@@ -156,7 +156,16 @@ pieces, 305 weapons, 115 rings and 105 spells:
 * **Armour sets go in one click.** The item ids encode sets, so *set* on any piece marks the whole
   four-piece set across all four slots. (Dark Souls 2 keys items by name, so there it marks the
   single piece.)
-* **Bulk marking in the browser** — search, then *Mark all shown*.
+* **Bulk marking in the browser** — search, then the button that says how many it is about to
+  touch: *Mark 12 shown*, or *Unmark 763 shown* when they are all marked already. In the everything
+  view with an empty search box, that second one is how you wipe the list and start over.
+
+An item is identified by its kind as well as its id, because the games reuse ids across lists:
+on Dark Souls there are 39 clashes — *Hard Leather Armor* and the *Drake Sword* are both `211000` —
+and Dark Souls 3 has two. Keyed by the bare id, marking a sword marked a chest piece and unmarking
+one unmarked the other. Inventories written before that was fixed are converted on load; an id that
+was ambiguous is recorded for both kinds, since that is what the old entry actually meant, so a
+few marks may need clearing by hand once.
 
 Owned state is per game, kept beside your builds, and deliberately never travels in a share link:
 it describes you, not the build.
@@ -168,10 +177,22 @@ A dropdown is the wrong shape for "which chest piece gives me the most poise for
 the dropdown, plus derived columns a dropdown cannot show, **poise per weight** being the one that
 usually settles it.
 
-Pick the slot from inside the browser, so you can flick between them while comparing. The picker
-groups the slots by what they take and says what is in each one — *Right hand 1 · Long Sword*,
-*Ring 3 · empty* — so you can choose the slot you meant without first working out which hand is
-holding the shield. Sort by any
+It opens on **All items** — every piece of equipment in the game in one table — because "where is
+that thing" is the question you arrive with more often than "what else fits here". Search it and
+you are searching everything: armour, weapons, rings and spells at once, with a *Where* column
+saying what each one is. Armour belongs to a single slot so it can be equipped straight from there;
+a weapon fits six slots and a ring four, so those offer **Show** instead, which takes you to that
+family with the name already in the search box.
+
+Otherwise pick a slot, which also gets you that slot's own columns. The picker groups the slots by
+what they take and says what is in each one — *Right hand 1 · Long Sword*, *Ring 3 · empty* — so
+you can choose the slot you meant without first working out which hand is holding the shield.
+
+Nine hundred rows has to stay quick. Each row means building one of the game's model objects, so
+they are worked out once per slot and kept, warmed in the background shortly after the page loads
+rather than when you first open the panel, and the table is written as a single string rather than
+a few thousand separate elements. Typing is debounced. Opening the panel went from about a second
+to twenty milliseconds. Sort by any
 column, search by name, or tick **Only what fits** to hide anything heavier than your remaining
 equip load — counting the slot's current item, since equipping replaces rather than adds.
 
