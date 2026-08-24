@@ -607,3 +607,49 @@
 .sp-editor__actions {
   margin: 0 -4px;
 }
+
+/* --------------------------------------------------------------------- navigation */
+
+/* A second bar under the main menu, matching its palette and typeface. Its own element rather
+   than a second row inside #main-menu, which is locked to 60px. */
+.sp-subnav {
+  background: rgba(0, 0, 0, 0.55);
+  border-bottom: 1px solid #222;
+  font-family: Aclonica, sans-serif;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.sp-subnav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sp-subnav li {
+  display: inline-block;
+}
+
+.sp-subnav a {
+  color: #999;
+  display: block;
+  line-height: 32px;
+  padding: 0 10px;
+  text-decoration: none;
+}
+
+.sp-subnav a:hover {
+  color: #fff;
+}
+
+.sp-subnav__current {
+  box-shadow: inset 0 -2px 0 #d0a24c;
+  color: #e8e8e8 !important;
+}
+
+/* The game you are already in, in the main menu. */
+#main-menu .sp-menu__current {
+  box-shadow: inset 0 -2px 0 #d0a24c;
+  color: #fff !important;
+}

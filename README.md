@@ -114,6 +114,17 @@ Under `localStorage`, per game (`darksouls`, `darksouls2`, `darksouls3`):
 
 Use Export in the builds dialog for a backup you can keep.
 
+## Getting around
+
+Every page of a game now carries a second bar listing that game's tools — planner, weapon attack
+and defence, ranged, stamina, armor, spells, items — with the current one marked, and the current
+game marked in the menu above it. Previously only the planner listed them, at the bottom of a very
+long page, so moving between two calculators meant going out to the home page and back.
+
+Switching game keeps the tool you are on where the other game has it, so Dark Souls 3's weapon
+calculator goes straight to Dark Souls'. Dark Souls 2 was only mirrored as a planner, so it falls
+back to that.
+
 ## The calculators
 
 The attack, defence, stamina, armor, spell and item calculators now remember what you set. Same
