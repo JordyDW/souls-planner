@@ -82,7 +82,12 @@ weighs 24kg:
 * **Rings** — weight and their actual effect text, which previously only appeared once the ring
   was already on.
 
-Deliberately not shown: weapon AR. The planner derives it with a correction step for rings and
+**Hover any option** and a card shows what it would do to your build — equipment load, roll type,
+poise, and for weapons the attack rating. Those numbers are not estimated: the planner is asked to
+calculate the candidate and its own output is read back, then the build is put straight back. It
+happens inside a single synchronous step, so nothing flickers and nothing is left changed.
+
+Deliberately not shown in the *columns*: weapon AR. The planner derives it with a correction step for rings and
 buffs that is not reachable from outside, so any number computed here would quietly disagree with
 the one you see once the weapon is equipped.
 

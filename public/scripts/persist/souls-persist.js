@@ -1499,20 +1499,178 @@
     if (!adapter.info) return
 
     var groups = [
-      { kind: 'armor', selector: adapter.lists[0].selector },
-      { kind: 'weapon', selector: adapter.lists[1].selector },
-      { kind: 'ring', selector: adapter.lists[2].selector },
-      { kind: 'spell', selector: '.planner .spells select, .spells select' }
+      { kind: 'armor', selector: adapter.lists[0].selector, extras: adapter.lists[0].extras },
+      { kind: 'weapon', selector: adapter.lists[1].selector, extras: adapter.lists[1].extras },
+      { kind: 'ring', selector: adapter.lists[2].selector, extras: [] },
+      { kind: 'spell', selector: '.planner .spells select, .spells select', extras: [] }
     ]
 
     for (var g = 0; g < groups.length; g++) {
       /* jshint loopfunc:true */
-      ;(function (kind) {
+      ;(function (kind, extras) {
         $(groups[g].selector).each(function () {
           retemplate($(this), kind)
+          attachPreview($(this), extras)
         })
-      })(groups[g].kind)
+      })(groups[g].kind, groups[g].extras || [])
     }
+  }
+
+  /* --------------------------------------------------------------- what-if preview */
+
+  /* Hovering an option shows what it would do to the build. The numbers come from the planner
+     itself rather than being recomputed here, which is what makes weapon AR possible at all -
+     stage B leaves it out precisely because it cannot be derived accurately from outside.
+
+     The probe sets the candidate, lets the planner recalculate, reads the outputs and puts
+     everything back, all inside ONE synchronous task. jQuery's trigger and the planner's recalc
+     are both synchronous, so the browser never gets a chance to paint the intermediate state and
+     there is no flicker - the build is back before the frame is drawn. */
+
+  var PREVIEW_DELAY = 120
+  var PREVIEW_KEEP = {
+    hp: 1, fp: 1, stamina: 1, 'equipment-load': 1, 'weight-left': 1, poise: 1,
+    'item-discovery': 1, 'attunement-slots': 1
+  }
+
+  function prettyOutputId(id, slotId) {
+    return id
+      .replace(slotId + '-', '')
+      .replace(/-/g, ' ')
+      .replace(/\batk\b/, 'attack')
+      .replace(/^./, function (c) { return c.toUpperCase() })
+  }
+
+  /* The summary panels, plus the hovered slot's own attack readout for weapons. */
+  function readProbe(slotId) {
+    var rows = readResults(document)
+    $('#' + slotId).parent().parent().find('.equipment-params.attack output').each(function () {
+      if (!this.id) return
+      rows.push({ id: this.id, label: prettyOutputId(this.id, slotId), value: $(this).text() })
+    })
+    return rows
+  }
+
+  function probeOption($select, extras, value) {
+    var slotId = $select.attr('id')
+    var current = $select.val()
+    if (String(value) === String(current)) return null
+
+    var saved = [current]
+    for (var i = 0; i < extras.length; i++) saved.push($('#' + slotId + extras[i]).val())
+
+    var before = readProbe(slotId)
+    applying = true
+    $select.val(value).trigger('change')
+    var after = readProbe(slotId)
+
+    /* Put it back, extras in reverse order, exactly as unparkSlot does. */
+    $select.val(saved[0]).trigger('change')
+    for (var e = extras.length - 1; e >= 0; e--) {
+      var $extra = $('#' + slotId + extras[e])
+      var want = saved[e + 1]
+      if (want === undefined || !$extra.length) continue
+      if (!$extra.find('option').filter(function () { return this.value === want }).length) continue
+      $extra.val(want).trigger('change')
+    }
+    applying = false
+
+    var changes = []
+    for (var r = 0; r < before.length; r++) {
+      var was = before[r]
+      var now = after[r]
+      if (!now || was.value === now.value) continue
+      /* Everything from the slot's own panel is interesting; from the summary only the headline
+         rows, or a ring preview turns into forty lines of absorption noise. */
+      var headline = PREVIEW_KEEP[was.id] || was.id.indexOf(slotId + '-') === 0
+      if (!headline) continue
+      changes.push({ label: was.label, from: was.value, to: now.value })
+    }
+    return changes
+  }
+
+  function previewCard() {
+    var card = $('#sp-preview')
+    if (!card.length) card = $('<div id="sp-preview" class="sp-preview"></div>').appendTo(document.body)
+    return card
+  }
+
+  function hidePreview() {
+    $('#sp-preview').removeClass('sp-preview--on')
+  }
+
+  function showPreview(changes, name, anchor) {
+    var card = previewCard().empty()
+    $('<div class="sp-preview__name"></div>').text(name).appendTo(card)
+
+    if (!changes || !changes.length) {
+      $('<div class="sp-preview__none"></div>').text('No change to your numbers').appendTo(card)
+    } else {
+      for (var i = 0; i < changes.length; i++) {
+        var line = $('<div class="sp-preview__row"></div>')
+        $('<span></span>').text(changes[i].label).appendTo(line)
+        $('<b></b>').text(changes[i].to).appendTo(line)
+        var delta = leadingNumber(changes[i].to) - leadingNumber(changes[i].from)
+        if (!isNaN(delta) && delta !== 0) {
+          $('<i></i>')
+            .text(formatDelta(delta, decimalsOf(changes[i].from)))
+            .addClass(delta > 0 ? 'sp-preview__up' : 'sp-preview__down')
+            .appendTo(line)
+        }
+        card.append(line)
+      }
+    }
+
+    var box = anchor.getBoundingClientRect()
+    card.addClass('sp-preview--on')
+    var height = card.outerHeight()
+    card.css({
+      left: Math.min(box.right + 10, window.innerWidth - card.outerWidth() - 8) + 'px',
+      top: Math.max(8, Math.min(box.top, window.innerHeight - height - 8)) + 'px'
+    })
+  }
+
+  function attachPreview($select, extras) {
+    var timer = null
+
+    $select.on('select2:open', function () {
+      /* The results list is built fresh on every open, so binding has to happen here. */
+      window.setTimeout(function () {
+        /* Only the outermost list: weapons are grouped, so binding to the nested lists as well
+           would run this twice for the same row. */
+        $('.select2-container--open .select2-results__options')
+          .not('.select2-results__options--nested')
+          .off('.spPreview')
+          .on('mouseenter.spPreview', '.select2-results__option', function () {
+            var data = $(this).data('data')
+            var anchor = this
+
+            /* Group headers ("Axes", "Straight Swords") are themselves .select2-results__option and
+               enclose their options, so hovering an option fires this for the option and then for
+               its group. Returning rather than falling through matters: the group has no id, and
+               clearing the timer there would cancel the probe the option just scheduled - which is
+               exactly why weapons showed nothing while armour, which has no groups, worked. */
+            if (data && data.children) return
+
+            window.clearTimeout(timer)
+            if (!data || !data.id || data.id === '-1') return hidePreview()
+            timer = window.setTimeout(function () {
+              var changes = probeOption($select, extras, data.id)
+              if (changes === null) return hidePreview()
+              showPreview(changes, data.text, anchor)
+            }, PREVIEW_DELAY)
+          })
+          .on('mouseleave.spPreview', function () {
+            window.clearTimeout(timer)
+            hidePreview()
+          })
+      }, 0)
+    })
+
+    $select.on('select2:close', function () {
+      window.clearTimeout(timer)
+      hidePreview()
+    })
   }
 
   /* ------------------------------------------------------------------- status */
