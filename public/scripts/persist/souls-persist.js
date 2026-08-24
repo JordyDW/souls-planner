@@ -2703,39 +2703,6 @@
     document.title = '● ' + baseTitle
   }
 
-  function buildStatus() {
-    var host = $('.planner .character-class')
-    if (!host.length) return
-    $('<div id="sp-status" class="sp-status"></div>')
-      .appendTo(host)
-      .on('click', '.sp-status__missing', function (event) {
-        /* Its own action - the chip behind it opens the comparison. */
-        event.stopPropagation()
-        var marked = markEquippedOwned()
-        syncOwnedButton()
-        updateStatus()
-        if ($('#browse-drawer').length) renderBrowse()
-        /* Not "equipped": parked slots are counted too, since you own what is in them - it is
-           just not on you at the moment. */
-        toast(marked ? 'Marked ' + marked + ' items as owned' : 'Nothing left to mark')
-      })
-      .on('click', function () {
-        var entry = savedEntry()
-        if (!entry) {
-          saveCurrent(false)
-          updateStatus()
-          return
-        }
-        if (!diffBuilds(stateOf(entry), currentState()).length) {
-          openDrawer()
-          return
-        }
-        openDrawer()
-        runCompare({ name: entry.name + ' (saved)', state: stateOf(entry) }, { name: 'Current build', state: currentState() })
-      })
-    updateStatus()
-  }
-
   /* ----------------------------------------------------------------- compare */
 
   /* Comparing two builds needs more than their stored fields: what you actually want to know is
@@ -3261,60 +3228,105 @@
     else openDrawer()
   }
 
+  /* Ten unlabelled icons crammed into the ~140px beside the class dropdown was a guessing game.
+     The actions now live in their own full-width bar under the page title, where there is room to
+     label every one of them and group related ones together. The planner's own new/reset buttons
+     move in too, so every action is in one place rather than split across two. */
+
+  var TOOLBAR_GROUPS = [
+    {
+      name: 'build',
+      buttons: [
+        { adopt: 'button-new', icon: 'add', label: 'New', title: 'Start a fresh build in a new tab' },
+        { adopt: 'button-reset', icon: 'refresh', label: 'Reset', title: 'Clear this build and start over' },
+        { id: 'sp-button-undo', icon: 'undo', label: 'Undo', title: 'Undo (Ctrl+Z)', action: function () { stepHistory(-1) } },
+        { id: 'sp-button-redo', icon: 'redo', label: 'Redo', title: 'Redo (Ctrl+Shift+Z)', action: function () { stepHistory(1) } }
+      ]
+    },
+    {
+      name: 'saved',
+      buttons: [
+        { id: 'sp-button-save', icon: 'save', label: 'Save', title: 'Save this build (Ctrl+S)', action: function () { saveCurrent(false) } },
+        { id: 'sp-button-builds', icon: 'folder', label: 'Builds', title: 'Your saved builds', action: toggleDrawer }
+      ]
+    },
+    {
+      name: 'share',
+      buttons: [
+        { id: 'sp-button-share', icon: 'link', label: 'Copy link', title: 'Copy a link to this exact build', action: function () { copyToClipboard(shareUrl(currentState())) } },
+        { id: 'sp-button-image', icon: 'image', label: 'Share', title: 'Share as an image, as text, or for an AI assistant', action: function () { if (shareIsOpen()) closeShare(); else openShare() } }
+      ]
+    },
+    {
+      name: 'items',
+      buttons: [
+        { id: 'sp-button-browse', icon: 'table_rows', label: 'Items', title: 'Browse and compare everything for a slot', action: function () { if (browseIsOpen()) closeBrowse(); else openBrowse() } },
+        { id: 'sp-button-owned', icon: 'inventory_2', label: 'Owned', title: 'Show only items you own', action: toggleOwnedFilter }
+      ]
+    }
+  ]
+
+  function toolbarButton(spec) {
+    /* The planner's own buttons are moved rather than recreated, so its handlers survive. */
+    var $button = spec.adopt ? $('#' + spec.adopt) : $('<button type="button"></button>').attr('id', spec.id)
+    if (spec.adopt) $button.empty().removeClass('material-icons')
+
+    $button
+      .addClass('sp-tool')
+      .attr('title', spec.title)
+      .append($('<i class="material-icons"></i>').text(spec.icon))
+      .append($('<span class="sp-tool__label"></span>').text(spec.label))
+
+    if (spec.action) $button.on('click', spec.action)
+    return $button
+  }
+
   function buildToolbar() {
-    var options = $('.planner .character-class .options')
-    if (!options.length) return
+    var planner = $('.planner')
+    if (!planner.length) return
 
-    /* Separates the planner's own actions from the ones this adds. */
-    $('<span class="sp-toolbar__sep"></span>').appendTo(options)
+    var bar = $('<div id="sp-toolbar"></div>')
+    var actions = $('<div class="sp-toolbar__actions"></div>').appendTo(bar)
 
-    $('<button type="button" class="material-icons" id="sp-button-owned">inventory_2</button>')
-      .on('click', toggleOwnedFilter)
-      .appendTo(options)
+    for (var g = 0; g < TOOLBAR_GROUPS.length; g++) {
+      var group = $('<div class="sp-toolbar__group"></div>')
+      for (var b = 0; b < TOOLBAR_GROUPS[g].buttons.length; b++) {
+        toolbarButton(TOOLBAR_GROUPS[g].buttons[b]).appendTo(group)
+      }
+      group.appendTo(actions)
+    }
 
-    $('<button type="button" class="material-icons" id="sp-button-browse" title="Browse and compare everything for a slot">table_rows</button>')
-      .on('click', function () {
-        if (browseIsOpen()) closeBrowse()
-        else openBrowse()
+    /* The status belongs with the actions that change it, not stranded under the class field. */
+    $('<div id="sp-status" class="sp-status"></div>')
+      .appendTo(bar)
+      .on('click', '.sp-status__missing', function (event) {
+        event.stopPropagation()
+        var marked = markEquippedOwned()
+        syncOwnedButton()
+        updateStatus()
+        if ($('#browse-drawer').length) renderBrowse()
+        toast(marked ? 'Marked ' + marked + ' items as owned' : 'Nothing left to mark')
       })
-      .appendTo(options)
-
-    $('<button type="button" class="material-icons" id="sp-button-undo" title="Undo (Ctrl+Z)">undo</button>')
       .on('click', function () {
-        stepHistory(-1)
+        var entry = savedEntry()
+        if (!entry) {
+          saveCurrent(false)
+          updateStatus()
+          return
+        }
+        if (!diffBuilds(stateOf(entry), currentState()).length) {
+          openDrawer()
+          return
+        }
+        openDrawer()
+        runCompare({ name: entry.name + ' (saved)', state: stateOf(entry) }, { name: 'Current build', state: currentState() })
       })
-      .appendTo(options)
 
-    $('<button type="button" class="material-icons" id="sp-button-redo" title="Redo (Ctrl+Shift+Z)">redo</button>')
-      .on('click', function () {
-        stepHistory(1)
-      })
-      .appendTo(options)
+    var caption = planner.children('.page-caption')
+    if (caption.length) bar.insertAfter(caption)
+    else planner.prepend(bar)
 
-    $('<span class="sp-toolbar__sep"></span>').appendTo(options)
-
-    $('<button class="material-icons" id="sp-button-save" title="Save build (Ctrl+S)">save</button>')
-      .on('click', function () {
-        saveCurrent(false)
-      })
-      .appendTo(options)
-
-    $('<button class="material-icons" id="sp-button-builds" title="Saved builds">folder</button>')
-      .on('click', toggleDrawer)
-      .appendTo(options)
-
-    $('<button type="button" class="material-icons" id="sp-button-image" title="Share as an image or text">image</button>')
-      .on('click', function () {
-        if (shareIsOpen()) closeShare()
-        else openShare()
-      })
-      .appendTo(options)
-
-    $('<button class="material-icons" id="sp-button-share" title="Copy share link">link</button>')
-      .on('click', function () {
-        copyToClipboard(shareUrl(currentState()))
-      })
-      .appendTo(options)
+    updateStatus()
   }
 
   function rebindStockButtons() {
@@ -3360,7 +3372,6 @@
     rebindStockButtons()
     buildToggles()
     applyParked(restoredParked)
-    buildStatus()
     decorateDropdowns()
 
     /* Choosing something for a parked slot obviously means you want it back. */

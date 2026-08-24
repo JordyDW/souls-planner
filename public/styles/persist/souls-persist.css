@@ -6,7 +6,6 @@
  * light panels (#f8f8ff, #ddd rules) even on the dark planner.
  *
  * The toolbar buttons deliberately carry no colour rules - they are .material-icons buttons
- * inside .character-class .options, so `.planner.dark .options button` already styles them.
  */
 
 /* ------------------------------------------------------------------------- drawer */
@@ -381,16 +380,6 @@
 
 /* Its own line under the class row: the cells above are inline-block, so a block-level chip
    naturally starts a new one. */
-.planner .character-class #sp-status {
-  cursor: pointer;
-  display: block;
-  font-size: 12px;
-  margin-top: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 100%;
-}
 
 .sp-status__dot {
   font-size: 10px;
@@ -748,53 +737,6 @@
   padding: 4px 12px;
 }
 
-/* ------------------------------------------------------------- the actions toolbar */
-
-/* The planner boxes these buttons into the ~144px left beside the class dropdown, where five
-   icons at 26px fit only just and a sixth would not. Giving the row its own line underneath
-   costs nothing - the cells in this block are inline-blocks, so a full-width one simply wraps -
-   and leaves room to group and to breathe. */
-.planner.dark .character-class .options {
-  display: block;
-  margin-top: 7px;
-  text-align: left;
-  width: 100%;
-}
-
-/* Eight actions have to fit the width of the class block without wrapping to a second row. */
-.planner.dark .character-class .options button {
-  border-radius: 3px;
-  font-size: 18px;
-  height: 26px;
-  line-height: 26px;
-  margin: 0;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
-  width: 27px;
-}
-
-.planner.dark .character-class .options button:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: #fff;
-}
-
-.planner.dark .character-class .options button:active {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/* Lit while its drawer is open, so the button reads as a toggle. */
-.planner.dark .character-class .options button.sp-button--active {
-  background: rgba(208, 162, 76, 0.18);
-  color: #f0dfae;
-}
-
-.sp-toolbar__sep {
-  background: #3a3a3a;
-  display: inline-block;
-  height: 16px;
-  margin: 0 5px;
-  vertical-align: -3px;
-  width: 1px;
-}
 
 /* ------------------------------------------------------------------ what-if preview */
 
@@ -856,15 +798,6 @@
 }
 
 /* Nothing left to undo reads as unavailable rather than broken. */
-.planner.dark .character-class .options button:disabled {
-  cursor: default;
-  opacity: 0.3;
-}
-
-.planner.dark .character-class .options button:disabled:hover {
-  background: 0 0;
-  color: #ccc;
-}
 
 /* -------------------------------------------------------------------- item browser */
 
@@ -1138,4 +1071,99 @@
 
 .sp-status__missing:hover {
   color: #d0a24c;
+}
+
+/* ------------------------------------------------------------- the actions toolbar */
+
+/* Its own full-width bar under the page title. Ten unlabelled icons squeezed into the ~140px
+   beside the class dropdown was a guessing game; here there is room to name every action and to
+   group related ones, and the status sits with the buttons that change it. */
+#sp-toolbar {
+  align-items: center;
+  border-bottom: 1px solid #262626;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  justify-content: space-between;
+  margin: 0 0 10px;
+  padding: 0 0 9px;
+  width: 100%;
+}
+
+.sp-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+/* A gap plus a hairline is enough to read as a group without drawing boxes. */
+.sp-toolbar__group {
+  display: flex;
+  gap: 2px;
+}
+
+.sp-toolbar__group + .sp-toolbar__group {
+  border-left: 1px solid #333;
+  padding-left: 14px;
+}
+
+.planner.dark button.sp-tool {
+  align-items: center;
+  background: 0 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #bdb6a8;
+  cursor: pointer;
+  display: flex;
+  font-family: inherit;
+  font-size: 12px;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+
+.planner.dark button.sp-tool .material-icons {
+  font-size: 17px;
+}
+
+.planner.dark button.sp-tool:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.planner.dark button.sp-tool:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.planner.dark button.sp-tool:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+/* Lit while the panel it opens is showing, so it reads as a toggle. */
+.planner.dark button.sp-tool.sp-button--active {
+  background: rgba(208, 162, 76, 0.18);
+  color: #f0dfae;
+}
+
+/* Narrow screens: drop the words rather than wrap into a tall stack. */
+@media only screen and (max-width: 700px) {
+  .sp-tool__label {
+    display: none;
+  }
+
+  .planner.dark button.sp-tool {
+    padding: 0 6px;
+  }
+}
+
+/* Its own line, always. Sharing the row with the buttons only worked while the build name and
+   change list stayed short, so it moved unpredictably. */
+#sp-toolbar .sp-status {
+  cursor: pointer;
+  flex: 1 0 100%;
+  font-size: 12px;
+  margin: 0;
+  text-align: left;
 }

@@ -24,13 +24,16 @@ two way to use:
 Added in this fork. The three character planners (DS, DS 2, DS 3) keep your build and can hand it
 to someone else as a link. The calculator pages are unchanged — they have no build state.
 
-Three buttons sit next to the existing "new" and "reset" icons above the class selector:
+A labelled toolbar sits under the page title, grouped by what the actions do:
 
-| Button | What it does |
+| Group | Buttons |
 | --- | --- |
-| 💾 save | Save the current build under a name, or update the one you loaded. `Ctrl`+`S` also works. |
-| 📁 builds | Opens the drawer: load, copy a link, rename, delete, compare, export or import. |
-| 🔗 link | Copy a link to the current build to the clipboard. |
+| Build | **New**, **Reset**, **Undo**, **Redo** |
+| Saved | **Save** (or `Ctrl`+`S`), **Builds** — load, rename, duplicate, compare, export, import |
+| Share | **Copy link**, **Share** — image, text, or a readout for an AI assistant |
+| Items | **Items** — browse a slot as a sortable table, **Owned** — filter to what you have |
+
+The build's status sits underneath it.
 
 Beyond that it just works in the background:
 
